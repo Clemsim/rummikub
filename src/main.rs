@@ -93,14 +93,14 @@ fn main() {
         Err(err) => println!("Bob : manipulation refusée ({})", err),
     }
     match partie.draw_tile() {
-        Some(tuile) => println!(
+        Ok(Some(tuile)) => println!(
             "Bob pioche la tuile ID {} ({} tuiles restent en pioche).",
             tuile.id,
             partie.pool.len()
         ),
-        None => println!("La pioche est vide."),
+        Ok(None) => println!("Bob passe son tour : la pioche est vide."),
+        Err(err) => println!("Erreur : {}", err),
     }
-    partie.end_turn().expect("le plateau reste valide");
 
     match partie.winner() {
         Some(id) => println!("{} a gagné !", partie.players[id].name),

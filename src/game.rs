@@ -55,11 +55,31 @@ impl Game {
         &mut self.players[self.current_player]
     }
 
-    /// Le joueur courant pioche une tuile (None si le sac est vide).
-    pub fn draw_tile(&mut self) -> Option<Tuile> {
-        let tuile = self.pool.pop()?;
-        self.current_player_mut().hand.push(tuile);
-        Some(tuile)
+    /// Le joueur courant ne pose rien : il pioche une tuile et son tour se
+    /// termine immédiatement (règle officielle). Si le sac est vide, il passe
+    /// simplement son tour et la méthode retourne None.
+    ///
+    /// Erreur si aucun tour n'est ouvert (start_turn) ou si le joueur a déjà
+    /// posé ou manipulé pendant ce tour.
+    pub fn draw_tile(&mut self) -> Result<Option<Tuile>, String> {
+        if self.board_backup.is_none() {
+            return Err(
+                "Aucun tour en cours : appelez start_turn pour ouvrir un tour.".to_string(),
+            );
+        }
+        if self.a_deja_joue_ce_tour() {
+            return Err(
+                "Le joueur a déjà joué pendant ce tour : impossible de piocher.".to_string(),
+            );
+        }
+
+        let tuile = self.pool.pop();
+        if let Some(tuile) = tuile {
+            self.current_player_mut().hand.push(tuile);
+        }
+        // Piocher (ou passer à sac vide) met fin au tour
+        self.fin_de_tour();
+        Ok(tuile)
     }
 
     /// Ouvre le tour du joueur courant : le plateau et sa main sont sauvegardés
@@ -83,6 +103,12 @@ impl Game {
     /// sa main. Avant la pose initiale, l'exigence des 30 points s'applique
     /// automatiquement.
     pub fn play_melds(&mut self, proposed_melds: Vec<Meld>) -> Result<u32, String> {
+        if self.board_backup.is_none() {
+            return Err(
+                "Aucun tour en cours : appelez start_turn pour ouvrir un tour.".to_string(),
+            );
+        }
+
         let joueur = self.current_player_mut();
         let points = if joueur.has_completed_initial_meld {
             joueur.play_melds(&proposed_melds)?
@@ -106,6 +132,11 @@ impl Game {
     /// - chaque nouvelle tuile provient de la main du joueur ;
     /// - aucune tuile n'est utilisée deux fois.
     pub fn submit_board(&mut self, melds: Vec<Meld>) -> Result<(), String> {
+        if self.board_backup.is_none() {
+            return Err(
+                "Aucun tour en cours : appelez start_turn pour ouvrir un tour.".to_string(),
+            );
+        }
         if !self.current_player().has_completed_initial_meld {
             return Err("Impossible de manipuler le plateau avant la pose initiale.".to_string());
         }
@@ -160,18 +191,44 @@ impl Game {
         Ok(())
     }
 
-    /// Clôture le tour : dernier contrôle de validité du plateau (sinon le tour
-    /// est annulé), nettoyage des sauvegardes puis passage au joueur suivant.
+    /// Clôture le tour du joueur courant et passe au suivant.
+    ///
+    /// Erreurs :
+    /// - aucun tour ouvert (start_turn) ;
+    /// - plateau invalide : le tour est alors annulé (cancel_turn) ;
+    /// - le joueur n'a rien joué alors que le sac contient encore des tuiles :
+    ///   il doit jouer ou piocher, la passe n'étant permise qu'à sac vide.
     pub fn end_turn(&mut self) -> Result<(), String> {
+        if self.board_backup.is_none() {
+            return Err(
+                "Aucun tour en cours : appelez start_turn pour ouvrir un tour.".to_string(),
+            );
+        }
         if !self.board.is_valid() {
             self.cancel_turn();
             return Err("Plateau invalide en fin de tour : tour annulé.".to_string());
         }
+        if !self.a_deja_joue_ce_tour() && !self.pool.is_empty() {
+            return Err("Le joueur doit poser des tuiles ou piocher : tour refusé.".to_string());
+        }
 
+        self.fin_de_tour();
+        Ok(())
+    }
+
+    /// Le joueur a-t-il déjà posé ou manipulé pendant le tour en cours ?
+    fn a_deja_joue_ce_tour(&self) -> bool {
+        match &self.board_backup {
+            Some(debut_de_tour) => *debut_de_tour != self.board,
+            None => false,
+        }
+    }
+
+    /// Nettoie les sauvegardes et passe au joueur suivant
+    fn fin_de_tour(&mut self) {
         self.board_backup = None;
         self.hand_backup = None;
         self.current_player = (self.current_player + 1) % self.players.len();
-        Ok(())
     }
 
     /// Identifiant du joueur gagnant (main vide), s'il y en a un.
@@ -196,10 +253,10 @@ mod tests {
         Game::new(vec!["Alice".to_string(), "Bob".to_string()]).unwrap()
     }
 
-    /// Joue le tour du joueur courant sans rien faire (simple rotation)
-    fn passer_tour(game: &mut Game) {
+    /// Tour minimal légal : le joueur pioche, ce qui termine son tour
+    fn tour_pioche(game: &mut Game) {
         game.start_turn();
-        game.end_turn().unwrap();
+        assert!(game.draw_tile().unwrap().is_some());
     }
 
     #[test]
@@ -268,7 +325,7 @@ mod tests {
         game.play_melds(vec![groupe]).unwrap();
         game.end_turn().unwrap();
 
-        passer_tour(&mut game); // Bob passe
+        tour_pioche(&mut game); // Bob pioche et passe
 
         // Alice rejoue une suite de 36 points : plus d'exigence des 30 points
         game.start_turn();
@@ -306,7 +363,7 @@ mod tests {
         game.play_melds(vec![groupe_3]).unwrap();
         game.end_turn().unwrap();
 
-        passer_tour(&mut game); // Bob passe
+        tour_pioche(&mut game); // Bob pioche et passe
 
         // Alice complète son groupe avec le 10 noir resté en main
         game.start_turn();
@@ -346,7 +403,7 @@ mod tests {
         game.play_melds(vec![groupe_4]).unwrap();
         game.end_turn().unwrap();
 
-        passer_tour(&mut game); // Bob passe
+        tour_pioche(&mut game); // Bob pioche et passe
 
         // Alice tente de reprendre le 10 noir du plateau : la tuile disparaîtrait
         game.start_turn();
@@ -409,34 +466,92 @@ mod tests {
     }
 
     #[test]
-    fn test_draw_tile_goes_to_current_player() {
+    fn test_draw_tile_ends_the_turn() {
         let mut game = game_deux_joueurs();
+        game.start_turn();
         let pool_avant = game.pool.len();
         let main_avant = game.players[0].hand.len();
 
-        let tuile = game.draw_tile().expect("la pioche n'est pas vide");
+        let tuile = game.draw_tile().unwrap().expect("la pioche n'est pas vide");
         assert_eq!(game.players[0].hand.len(), main_avant + 1);
         assert!(game.players[0].hand.iter().any(|t| t.id == tuile.id));
         assert_eq!(game.pool.len(), pool_avant - 1);
 
-        // Sac vide : None et rien ne change
-        game.pool.clear();
-        assert!(game.draw_tile().is_none());
-        assert_eq!(game.players[0].hand.len(), main_avant + 1);
-    }
-
-    #[test]
-    fn test_end_turn_advances_player_and_clears_backups() {
-        let mut game = game_deux_joueurs();
-        game.start_turn();
-
-        game.end_turn().unwrap();
+        // Piocher met fin au tour : passage au joueur suivant
         assert_eq!(game.current_player, 1);
         assert!(game.board_backup.is_none());
         assert!(game.hand_backup.is_none());
 
+        // Tour terminé : repiocher est refusé
+        assert!(game.draw_tile().is_err());
+    }
+
+    #[test]
+    fn test_draw_tile_passes_when_pool_is_empty() {
+        let mut game = game_deux_joueurs();
+        game.pool.clear();
+        game.start_turn();
+        let main_avant = game.players[0].hand.len();
+
+        // Sac vide : le joueur passe son tour sans piocher
+        assert!(game.draw_tile().unwrap().is_none());
+        assert_eq!(game.players[0].hand.len(), main_avant);
+        assert_eq!(game.current_player, 1);
+    }
+
+    #[test]
+    fn test_draw_tile_rejected_after_playing() {
+        let mut game = game_deux_joueurs();
+        game.players[0].hand = vec![
+            standard(1, Color::Red, 10),
+            standard(2, Color::Blue, 10),
+            standard(3, Color::Yellow, 10),
+        ];
+        game.start_turn();
+        let main = game.players[0].hand.clone();
+        game.play_melds(vec![Meld::new(main)]).unwrap();
+
+        // Le joueur a déjà posé : impossible de piocher
+        assert!(game.draw_tile().is_err());
+
+        // Le tour peut quand même se terminer normalement
         game.end_turn().unwrap();
-        assert_eq!(game.current_player, 0); // rotation
+        assert_eq!(game.current_player, 1);
+    }
+
+    #[test]
+    fn test_end_turn_requires_an_open_turn_and_an_action() {
+        let mut game = game_deux_joueurs();
+
+        // Sans tour ouvert, les actions sont refusées
+        assert!(game.end_turn().is_err());
+        assert!(game.draw_tile().is_err());
+        assert!(game.play_melds(vec![]).is_err());
+
+        // Un tour sans action est refusé tant que le sac contient des tuiles :
+        // le joueur doit jouer ou piocher
+        game.start_turn();
+        assert!(game.end_turn().is_err());
+
+        // Piocher est l'action minimale : elle termine le tour
+        game.start_turn();
+        assert!(game.draw_tile().unwrap().is_some());
+        assert_eq!(game.current_player, 1);
+
+        // Rotation complète : retour au joueur 0
+        game.start_turn();
+        assert!(game.draw_tile().unwrap().is_some());
+        assert_eq!(game.current_player, 0);
+    }
+
+    #[test]
+    fn test_end_turn_allows_passing_when_pool_is_empty() {
+        let mut game = game_deux_joueurs();
+        game.pool.clear();
+
+        game.start_turn();
+        game.end_turn().unwrap(); // passe autorisée à sac vide
+        assert_eq!(game.current_player, 1);
     }
 
     #[test]
