@@ -20,12 +20,11 @@ impl Player {
         }
     }
 
-    /// Valide et applique la pose initiale (>= 30 points, uniquement depuis la main)
-    pub fn play_initial_meld(&mut self, proposed_melds: &[Meld]) -> Result<u32, String> {
-        if self.has_completed_initial_meld {
-            return Err("La pose initiale a déjà été réalisée.".to_string());
-        }
-
+    /// Vérifie une proposition de pose sans rien modifier : chaque combinaison
+    /// doit être valide, et toutes les tuiles doivent provenir de la main du
+    /// joueur, sans réutilisation.
+    /// Retourne (points totaux, identifiants des tuiles jouées).
+    fn check_proposal(&self, proposed_melds: &[Meld]) -> Result<(u32, HashSet<u8>), String> {
         if proposed_melds.is_empty() {
             return Err("Aucune combinaison proposée.".to_string());
         }
@@ -61,6 +60,17 @@ impl Player {
         // 3. Calculer les points totaux
         let total_points: u32 = proposed_melds.iter().map(|m| m.points()).sum();
 
+        Ok((total_points, played_Tuile_ids))
+    }
+
+    /// Valide et applique la pose initiale (>= 30 points, uniquement depuis la main)
+    pub fn play_initial_meld(&mut self, proposed_melds: &[Meld]) -> Result<u32, String> {
+        if self.has_completed_initial_meld {
+            return Err("La pose initiale a déjà été réalisée.".to_string());
+        }
+
+        let (total_points, played_Tuile_ids) = self.check_proposal(proposed_melds)?;
+
         if total_points < 30 {
             return Err(format!(
                 "Points insuffisants : {} points obtenus (minimum 30 requis).",
@@ -68,11 +78,25 @@ impl Player {
             ));
         }
 
-        // Retirer les tuiles jouées de la main du joueur
-        self.hand.retain(|t| !played_Tuile_ids.contains(&t.id));
+        self.remove_played_tiles(&played_Tuile_ids);
         self.has_completed_initial_meld = true;
 
         Ok(total_points)
+    }
+
+    /// Valide et applique la pose de combinaisons depuis la main
+    /// (à utiliser après la pose initiale : pas d'exigence de 30 points ici)
+    pub fn play_melds(&mut self, proposed_melds: &[Meld]) -> Result<u32, String> {
+        let (total_points, played_Tuile_ids) = self.check_proposal(proposed_melds)?;
+
+        self.remove_played_tiles(&played_Tuile_ids);
+
+        Ok(total_points)
+    }
+
+    /// Retire de la main les tuiles identifiées
+    fn remove_played_tiles(&mut self, played_Tuile_ids: &HashSet<u8>) {
+        self.hand.retain(|t| !played_Tuile_ids.contains(&t.id));
     }
 }
 
