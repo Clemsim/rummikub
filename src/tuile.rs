@@ -1,16 +1,16 @@
 use rand::seq::SliceRandom;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum Color {
-    Red,
-    Blue,
-    Yellow,
-    Black,
+pub enum Couleur {
+    Rouge,
+    Bleu,
+    Jaune,
+    Noir,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TuileType {
-    Standard { color: Color, value: u8 }, // value: 1..=13
+    Standard { couleur: Couleur, valeur: u8 }, // valeur: 1..=13
     Joker,
 }
 
@@ -21,56 +21,56 @@ pub struct Tuile {
 }
 
 impl Tuile {
-    pub fn new_standard(id: u8, color: Color, value: u8) -> Self {
+    pub fn nouvelle_standard(id: u8, couleur: Couleur, valeur: u8) -> Self {
         assert!(
-            (1..=13).contains(&value),
+            (1..=13).contains(&valeur),
             "La valeur d'une tuile doit être entre 1 et 13"
         );
         Self {
             id,
-            Type: TuileType::Standard { color, value },
+            Type: TuileType::Standard { couleur, valeur },
         }
     }
 
-    pub fn new_joker(id: u8) -> Self {
+    pub fn nouveau_joker(id: u8) -> Self {
         Self {
             id,
             Type: TuileType::Joker,
         }
     }
 
-    pub fn is_joker(&self) -> bool {
+    pub fn est_joker(&self) -> bool {
         matches!(self.Type, TuileType::Joker)
     }
 }
 
 /// Génère les 106 tuiles du jeu (4 couleurs * 13 valeurs * 2 exemplaires + 2 jokers)
-pub fn generate_pool() -> Vec<Tuile> {
+pub fn generer_pioche() -> Vec<Tuile> {
     let mut pioche = Vec::with_capacity(106);
     let mut current_id: u8 = 0;
 
-    let colors = [Color::Red, Color::Blue, Color::Yellow, Color::Black];
+    let colors = [Couleur::Rouge, Couleur::Bleu, Couleur::Jaune, Couleur::Noir];
 
     // 2 exemplaires de chaque tuile
     for _ in 0..2 {
-        for &color in &colors {
-            for value in 1..=13 {
-                pioche.push(Tuile::new_standard(current_id, color, value));
+        for &couleur in &colors {
+            for valeur in 1..=13 {
+                pioche.push(Tuile::nouvelle_standard(current_id, couleur, valeur));
                 current_id += 1;
             }
         }
     }
 
     // 2 Jokers
-    pioche.push(Tuile::new_joker(current_id));
+    pioche.push(Tuile::nouveau_joker(current_id));
     current_id += 1;
-    pioche.push(Tuile::new_joker(current_id));
+    pioche.push(Tuile::nouveau_joker(current_id));
 
     pioche
 }
 
 /// Mélange le sac de tuiles aléatoirement
-pub fn shuffle_pool(pioche: &mut [Tuile]) {
+pub fn melanger_pioche(pioche: &mut [Tuile]) {
     let mut rng = rand::rng();
     pioche.shuffle(&mut rng);
 }

@@ -9,17 +9,17 @@ pub struct Plateau {
 
 impl Plateau {
     /// Pose une nouvelle combinaison sur le plateau
-    pub fn place_meld(&mut self, combinaison: Combinaison) {
+    pub fn placer_combinaison(&mut self, combinaison: Combinaison) {
         self.combinaisons.push(combinaison);
     }
 
     /// Remplace l'état complet du plateau (fin d'une manipulation)
-    pub fn set_melds(&mut self, combinaisons: Vec<Combinaison>) {
+    pub fn remplacer_combinaisons(&mut self, combinaisons: Vec<Combinaison>) {
         self.combinaisons = combinaisons;
     }
 
     /// Identifiants de toutes les tuiles posées sur le plateau
-    pub fn tile_ids(&self) -> HashSet<u8> {
+    pub fn ids_tuiles(&self) -> HashSet<u8> {
         self.combinaisons
             .iter()
             .flat_map(|combinaison| combinaison.Tuiles.iter().map(|tuile| tuile.id))
@@ -27,10 +27,10 @@ impl Plateau {
     }
 
     /// Le plateau n'est valide que si toutes ses combinaisons le sont
-    pub fn is_valid(&self) -> bool {
+    pub fn est_valide(&self) -> bool {
         self.combinaisons
             .iter()
-            .all(|combinaison| combinaison.is_valid())
+            .all(|combinaison| combinaison.est_valide())
     }
 }
 

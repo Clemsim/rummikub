@@ -7,7 +7,7 @@ Single-crate Rust binary (no lib target) for Rummikub game logic. All modules ar
 ## Gotchas
 
 - **Modules are silently ignored unless declared.** Every module must be declared in `src/main.rs` or it will never compile.
-- **French naming is a project-wide rule.** Types, fields, locals, and comments use `Tuile`, `Tuiles`, etc., and comments are in French. `Tuile.Type` is capitalized because `type` is a reserved keyword. Do not rename to English. `#![allow(non_snake_case)]` at the top of `src/main.rs` silences the resulting warnings — do not remove it.
+- **French naming is a project-wide rule.** Modules, types, fields, methods, and locals use French: `Tuile`, `Couleur::Rouge`, `piocher`, `ouvrir_tour`, etc., and comments are in French. `Tuile.Type` is capitalized because `type` is a reserved keyword. Test function names stay English (Rust convention, used with `cargo test <name>`). Do not rename to English. `#![allow(non_snake_case)]` at the top of `src/main.rs` silences the resulting warnings — do not remove it.
 - Domain invariants exercised by tests: jokers in runs resolve to values in 1..=13 (no duplicate values, gaps must not exceed joker count); the initial meld needs ≥ 30 points from melds built only from the player's unique tile IDs.
 
 ## Commands

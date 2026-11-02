@@ -11,7 +11,7 @@ pub struct Joueur {
 }
 
 impl Joueur {
-    pub fn new(id: usize, nom: String, main: Vec<Tuile>) -> Self {
+    pub fn nouveau(id: usize, nom: String, main: Vec<Tuile>) -> Self {
         Self {
             id,
             nom,
@@ -24,14 +24,17 @@ impl Joueur {
     /// doit être valide, et toutes les tuiles doivent provenir de la main du
     /// joueur, sans réutilisation.
     /// Retourne (points totaux, identifiants des tuiles jouées).
-    fn check_proposal(&self, proposed_melds: &[Combinaison]) -> Result<(u32, HashSet<u8>), String> {
+    fn verifier_proposition(
+        &self,
+        proposed_melds: &[Combinaison],
+    ) -> Result<(u32, HashSet<u8>), String> {
         if proposed_melds.is_empty() {
             return Err("Aucune combinaison proposée.".to_string());
         }
 
         // 1. Vérifier que chaque combinaison est valide
         for (i, combinaison) in proposed_melds.iter().enumerate() {
-            if !combinaison.is_valid() {
+            if !combinaison.est_valide() {
                 return Err(format!("La combinaison n°{} est invalide.", i + 1));
             }
         }
@@ -64,12 +67,12 @@ impl Joueur {
     }
 
     /// Valide et applique la pose initiale (>= 30 points, uniquement depuis la main)
-    pub fn play_initial_meld(&mut self, proposed_melds: &[Combinaison]) -> Result<u32, String> {
+    pub fn jouer_pose_initiale(&mut self, proposed_melds: &[Combinaison]) -> Result<u32, String> {
         if self.a_fait_pose_initiale {
             return Err("La pose initiale a déjà été réalisée.".to_string());
         }
 
-        let (total_points, played_Tuile_ids) = self.check_proposal(proposed_melds)?;
+        let (total_points, played_Tuile_ids) = self.verifier_proposition(proposed_melds)?;
 
         if total_points < 30 {
             return Err(format!(
@@ -78,7 +81,7 @@ impl Joueur {
             ));
         }
 
-        self.remove_played_tiles(&played_Tuile_ids);
+        self.retirer_tuiles_jouees(&played_Tuile_ids);
         self.a_fait_pose_initiale = true;
 
         Ok(total_points)
@@ -86,16 +89,16 @@ impl Joueur {
 
     /// Valide et applique la pose de combinaisons depuis la main
     /// (à utiliser après la pose initiale : pas d'exigence de 30 points ici)
-    pub fn play_melds(&mut self, proposed_melds: &[Combinaison]) -> Result<u32, String> {
-        let (total_points, played_Tuile_ids) = self.check_proposal(proposed_melds)?;
+    pub fn poser_combinaisons(&mut self, proposed_melds: &[Combinaison]) -> Result<u32, String> {
+        let (total_points, played_Tuile_ids) = self.verifier_proposition(proposed_melds)?;
 
-        self.remove_played_tiles(&played_Tuile_ids);
+        self.retirer_tuiles_jouees(&played_Tuile_ids);
 
         Ok(total_points)
     }
 
     /// Retire de la main les tuiles identifiées
-    fn remove_played_tiles(&mut self, played_Tuile_ids: &HashSet<u8>) {
+    fn retirer_tuiles_jouees(&mut self, played_Tuile_ids: &HashSet<u8>) {
         self.main.retain(|t| !played_Tuile_ids.contains(&t.id));
     }
 }

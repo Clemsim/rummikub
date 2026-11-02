@@ -1,4 +1,4 @@
-use crate::tuile::{Color, Tuile, TuileType};
+use crate::tuile::{Couleur, Tuile, TuileType};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7,41 +7,41 @@ pub struct Combinaison {
 }
 
 impl Combinaison {
-    pub fn new(Tuiles: Vec<Tuile>) -> Self {
+    pub fn nouvelle(Tuiles: Vec<Tuile>) -> Self {
         Self { Tuiles }
     }
 
-    pub fn is_valid(&self) -> bool {
+    pub fn est_valide(&self) -> bool {
         if self.Tuiles.len() < 3 {
             return false;
         }
-        self.is_valid_group() || self.is_valid_run()
+        self.est_groupe_valide() || self.est_suite_valide()
     }
 
     /// Validation d'un groupe (3 ou 4 tuiles de même valeur et de couleurs différentes)
-    pub fn is_valid_group(&self) -> bool {
-        let len = self.Tuiles.len();
-        if !(3..=4).contains(&len) {
+    pub fn est_groupe_valide(&self) -> bool {
+        let longueur = self.Tuiles.len();
+        if !(3..=4).contains(&longueur) {
             return false;
         }
 
-        let mut group_val: Option<u8> = None;
-        let mut colors_seen = HashSet::new();
+        let mut valeur_groupe: Option<u8> = None;
+        let mut couleurs_vues = HashSet::new();
 
         for Tuile in &self.Tuiles {
             match Tuile.Type {
-                TuileType::Standard { color, value } => {
+                TuileType::Standard { couleur, valeur } => {
                     // Toutes les tuiles standard doivent avoir la même valeur
-                    if let Some(expected_val) = group_val {
-                        if value != expected_val {
+                    if let Some(valeur_attendue) = valeur_groupe {
+                        if valeur != valeur_attendue {
                             return false;
                         }
                     } else {
-                        group_val = Some(value);
+                        valeur_groupe = Some(valeur);
                     }
 
                     // Pas deux fois la même couleur dans un groupe
-                    if !colors_seen.insert(color) {
+                    if !couleurs_vues.insert(couleur) {
                         return false;
                     }
                 }
@@ -50,17 +50,17 @@ impl Combinaison {
         }
 
         // Il faut au moins une tuile standard pour définir la valeur du groupe
-        group_val.is_some()
+        valeur_groupe.is_some()
     }
 
     /// Validation d'une suite (>= 3 tuiles de même couleur, consécutives, avec Jokers)
-    pub fn is_valid_run(&self) -> bool {
-        self.resolve_run_range().is_some()
+    pub fn est_suite_valide(&self) -> bool {
+        self.bornes_de_suite().is_some()
     }
 
     /// Analyse la suite et retourne (start_value_min, start_value_max) si la suite est valide.
     /// Une suite de longueur L démarrant à `S` couvrira [S ..= S + L - 1].
-    fn resolve_run_range(&self) -> Option<(u8, u8)> {
+    fn bornes_de_suite(&self) -> Option<(u8, u8)> {
         let longueur = self.Tuiles.len();
         // Une suite ne peut pas dépasser 13 tuiles (1 à 13)
         if !(3..=13).contains(&longueur) {
@@ -105,20 +105,20 @@ impl Combinaison {
     fn jokers_et_valeurs_de_suite(&self) -> Option<(usize, Vec<u8>)> {
         let mut jokers: usize = 0;
         let mut valeurs: Vec<u8> = Vec::new();
-        let mut couleur: Option<Color> = None;
+        let mut couleur_suite: Option<Couleur> = None;
 
         for tuile in &self.Tuiles {
             match tuile.Type {
                 TuileType::Joker => jokers += 1,
-                TuileType::Standard { color, value } => {
-                    if let Some(couleur_attendue) = couleur {
-                        if color != couleur_attendue {
+                TuileType::Standard { couleur, valeur } => {
+                    if let Some(couleur_attendue) = couleur_suite {
+                        if couleur != couleur_attendue {
                             return None; // Couleurs différentes
                         }
                     } else {
-                        couleur = Some(color);
+                        couleur_suite = Some(couleur);
                     }
-                    valeurs.push(value);
+                    valeurs.push(valeur);
                 }
             }
         }
@@ -148,25 +148,25 @@ impl Combinaison {
     /// Calcule la valeur en points de la combinaison.
     /// Si un joker est présent dans une suite, on prend la configuration la plus avantageuse.
     pub fn points(&self) -> u32 {
-        if self.is_valid_group() {
+        if self.est_groupe_valide() {
             // Dans un groupe, chaque joker prend la valeur de la tuile du groupe
-            let standard_val = self
+            let valeur_standard = self
                 .Tuiles
                 .iter()
                 .find_map(|t| match t.Type {
-                    TuileType::Standard { value, .. } => Some(value),
+                    TuileType::Standard { valeur, .. } => Some(valeur),
                     _ => None,
                 })
                 .unwrap_or(0);
-            return (standard_val as u32) * (self.Tuiles.len() as u32);
+            return (valeur_standard as u32) * (self.Tuiles.len() as u32);
         }
 
-        if let Some((_, max_s)) = self.resolve_run_range() {
+        if let Some((_, debut_max)) = self.bornes_de_suite() {
             // Choix du début de séquence qui maximise les points (le plus grand S possible)
-            let len = self.Tuiles.len() as u32;
-            let start = max_s as u32;
-            let end = start + len - 1;
-            return len * (start + end) / 2;
+            let longueur = self.Tuiles.len() as u32;
+            let debut = debut_max as u32;
+            let fin = debut + longueur - 1;
+            return longueur * (debut + fin) / 2;
         }
 
         0

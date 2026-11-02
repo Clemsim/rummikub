@@ -1,16 +1,16 @@
 use crate::combinaison::Combinaison;
 use crate::joueur::Joueur;
 use crate::plateau::Plateau;
-use crate::tuile::{Tuile, generate_pool, shuffle_pool};
+use crate::tuile::{Tuile, generer_pioche, melanger_pioche};
 use std::collections::HashSet;
 
 /// État du tour en cours dans la partie
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Tour {
-    /// Aucun tour ouvert : le joueur courant doit ouvrir son tour (start_turn)
+    /// Aucun tour ouvert : le joueur courant doit ouvrir son tour (ouvrir_tour)
     Repos,
     /// Tour ouvert : l'état du plateau et la main du joueur courant au début
-    /// du tour sont conservés pour permettre une annulation (cancel_turn)
+    /// du tour sont conservés pour permettre une annulation (annuler_tour)
     Ouvert {
         plateau_debut: Plateau,
         main_debut: Vec<Tuile>,
@@ -23,7 +23,7 @@ pub struct Partie {
     pub plateau: Plateau,
     pub pioche: Vec<Tuile>, // Pioche
     /// État du tour en cours : un tour ouvert conserve le plateau et la main
-    /// du début de tour, pour annuler une manipulation illégale (cancel_turn)
+    /// du début de tour, pour annuler une manipulation illégale (annuler_tour)
     pub tour: Tour,
 }
 
@@ -33,7 +33,7 @@ impl Partie {
 
     /// Prépare une partie : sac mélangé puis 14 tuiles distribuées à chaque joueur.
     /// Le Rummikub se joue de 2 à 4 joueurs.
-    pub fn new(noms: Vec<String>) -> Result<Self, String> {
+    pub fn nouvelle(noms: Vec<String>) -> Result<Self, String> {
         if !(2..=4).contains(&noms.len()) {
             return Err(format!(
                 "Le jeu se joue de 2 à 4 joueurs (reçu : {}).",
@@ -41,13 +41,13 @@ impl Partie {
             ));
         }
 
-        let mut pioche = generate_pool();
-        shuffle_pool(&mut pioche);
+        let mut pioche = generer_pioche();
+        melanger_pioche(&mut pioche);
 
         let mut joueurs = Vec::with_capacity(noms.len());
         for (id, nom) in noms.into_iter().enumerate() {
             let main: Vec<Tuile> = pioche.drain(..Self::TUILES_PAR_JOUEUR).collect();
-            joueurs.push(Joueur::new(id, nom, main));
+            joueurs.push(Joueur::nouveau(id, nom, main));
         }
 
         Ok(Self {
@@ -71,12 +71,12 @@ impl Partie {
     /// termine immédiatement (règle officielle). Si le sac est vide, il passe
     /// simplement son tour et la méthode retourne None.
     ///
-    /// Erreur si aucun tour n'est ouvert (start_turn) ou si le joueur a déjà
+    /// Erreur si aucun tour n'est ouvert (ouvrir_tour) ou si le joueur a déjà
     /// posé ou manipulé pendant ce tour.
-    pub fn draw_tile(&mut self) -> Result<Option<Tuile>, String> {
+    pub fn piocher(&mut self) -> Result<Option<Tuile>, String> {
         if !self.tour_ouvert() {
             return Err(
-                "Aucun tour en cours : appelez start_turn pour ouvrir un tour.".to_string(),
+                "Aucun tour en cours : appelez ouvrir_tour pour ouvrir un tour.".to_string(),
             );
         }
         if self.a_deja_joue_ce_tour() {
@@ -95,8 +95,8 @@ impl Partie {
     }
 
     /// Ouvre le tour du joueur courant : le plateau et sa main sont sauvegardés
-    /// pour permettre d'annuler le tour (cancel_turn).
-    pub fn start_turn(&mut self) {
+    /// pour permettre d'annuler le tour (annuler_tour).
+    pub fn ouvrir_tour(&mut self) {
         self.tour = Tour::Ouvert {
             plateau_debut: self.plateau.clone(),
             main_debut: self.joueur_courant().main.clone(),
@@ -105,7 +105,7 @@ impl Partie {
 
     /// Annule le tour en cours : restaure le plateau et la main du début de
     /// tour. Sans tour ouvert, l'appel ne fait rien.
-    pub fn cancel_turn(&mut self) {
+    pub fn annuler_tour(&mut self) {
         if let Tour::Ouvert {
             plateau_debut,
             main_debut,
@@ -119,22 +119,22 @@ impl Partie {
     /// Le joueur courant pose des combinaisons construites uniquement à partir de
     /// sa main. Avant la pose initiale, l'exigence des 30 points s'applique
     /// automatiquement.
-    pub fn play_melds(&mut self, proposed_melds: Vec<Combinaison>) -> Result<u32, String> {
+    pub fn poser_combinaisons(&mut self, proposed_melds: Vec<Combinaison>) -> Result<u32, String> {
         if !self.tour_ouvert() {
             return Err(
-                "Aucun tour en cours : appelez start_turn pour ouvrir un tour.".to_string(),
+                "Aucun tour en cours : appelez ouvrir_tour pour ouvrir un tour.".to_string(),
             );
         }
 
         let joueur = self.joueur_courant_mut();
         let points = if joueur.a_fait_pose_initiale {
-            joueur.play_melds(&proposed_melds)?
+            joueur.poser_combinaisons(&proposed_melds)?
         } else {
-            joueur.play_initial_meld(&proposed_melds)?
+            joueur.jouer_pose_initiale(&proposed_melds)?
         };
 
         for combinaison in proposed_melds {
-            self.plateau.place_meld(combinaison);
+            self.plateau.placer_combinaison(combinaison);
         }
         Ok(points)
     }
@@ -148,10 +148,10 @@ impl Partie {
     /// - aucune tuile ne disparaît du plateau ;
     /// - chaque nouvelle tuile provient de la main du joueur ;
     /// - aucune tuile n'est utilisée deux fois.
-    pub fn submit_board(&mut self, combinaisons: Vec<Combinaison>) -> Result<(), String> {
+    pub fn soumettre_plateau(&mut self, combinaisons: Vec<Combinaison>) -> Result<(), String> {
         if !self.tour_ouvert() {
             return Err(
-                "Aucun tour en cours : appelez start_turn pour ouvrir un tour.".to_string(),
+                "Aucun tour en cours : appelez ouvrir_tour pour ouvrir un tour.".to_string(),
             );
         }
         if !self.joueur_courant().a_fait_pose_initiale {
@@ -159,12 +159,12 @@ impl Partie {
         }
 
         for (i, combinaison) in combinaisons.iter().enumerate() {
-            if !combinaison.is_valid() {
+            if !combinaison.est_valide() {
                 return Err(format!("La combinaison n°{} est invalide.", i + 1));
             }
         }
 
-        let mut ids_plateau = self.plateau.tile_ids();
+        let mut ids_plateau = self.plateau.ids_tuiles();
         let mut ids_main: HashSet<u8> = self
             .joueur_courant()
             .main
@@ -201,7 +201,7 @@ impl Partie {
 
         // Application : nouveau plateau, puis retrait de la main des tuiles
         // nouvellement posées (ids_main ne contient plus que les tuiles non utilisées)
-        self.plateau.set_melds(combinaisons);
+        self.plateau.remplacer_combinaisons(combinaisons);
         self.joueur_courant_mut()
             .main
             .retain(|tuile| ids_main.contains(&tuile.id));
@@ -211,18 +211,18 @@ impl Partie {
     /// Clôture le tour du joueur courant et passe au suivant.
     ///
     /// Erreurs :
-    /// - aucun tour ouvert (start_turn) ;
-    /// - plateau invalide : le tour est alors annulé (cancel_turn) ;
+    /// - aucun tour ouvert (ouvrir_tour) ;
+    /// - plateau invalide : le tour est alors annulé (annuler_tour) ;
     /// - le joueur n'a rien joué alors que le sac contient encore des tuiles :
     ///   il doit jouer ou piocher, la passe n'étant permise qu'à sac vide.
-    pub fn end_turn(&mut self) -> Result<(), String> {
+    pub fn terminer_tour(&mut self) -> Result<(), String> {
         if !self.tour_ouvert() {
             return Err(
-                "Aucun tour en cours : appelez start_turn pour ouvrir un tour.".to_string(),
+                "Aucun tour en cours : appelez ouvrir_tour pour ouvrir un tour.".to_string(),
             );
         }
-        if !self.plateau.is_valid() {
-            self.cancel_turn();
+        if !self.plateau.est_valide() {
+            self.annuler_tour();
             return Err("Plateau invalide en fin de tour : tour annulé.".to_string());
         }
         if !self.a_deja_joue_ce_tour() && !self.pioche.is_empty() {
@@ -253,7 +253,7 @@ impl Partie {
     }
 
     /// Identifiant du joueur gagnant (main vide), s'il y en a un.
-    pub fn winner(&self) -> Option<usize> {
+    pub fn gagnant(&self) -> Option<usize> {
         self.joueurs
             .iter()
             .find(|joueur| joueur.main.is_empty())
