@@ -75,3 +75,10 @@ version = "0.1.0"
 dependencies = [
  "rand",
 ]
+
+[[package]]
+name = "rummikub-ia"
+version = "0.1.0"
+dependencies = [
+ "rummikub-core",
+]

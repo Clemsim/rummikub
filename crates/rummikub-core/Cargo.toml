@@ -1,0 +1,15 @@
+[package]
+name = "rummikub-core"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "rummikub_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rummikub"
+path = "src/main.rs"
+
+[dependencies]
+rand = "0.10.3"
