@@ -44,6 +44,15 @@ impl Tuile {
     pub fn est_joker(&self) -> bool {
         matches!(self.Type, TuileType::Joker)
     }
+
+    /// Valeur de la tuile pour le décompte final : sa valeur, ou 30 pour un
+    /// joker resté en main (règle officielle)
+    pub fn valeur_points(&self) -> u8 {
+        match self.Type {
+            TuileType::Standard { valeur, .. } => valeur,
+            TuileType::Joker => 30,
+        }
+    }
 }
 
 /// Génère les 106 tuiles du jeu (4 couleurs * 13 valeurs * 2 exemplaires + 2 jokers)
