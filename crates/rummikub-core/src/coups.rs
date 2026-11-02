@@ -200,7 +200,11 @@ pub fn coups_possibles(partie: &Partie) -> Result<Vec<Coup>, String> {
     if partie.a_deja_joue_ce_tour() || partie.pioche.is_empty() {
         coups.push(Coup::Terminer);
     }
-    coups.push(Coup::Piocher);
+    // Piocher met fin au tour, mais uniquement si le joueur n'a encore rien
+    // joué pendant ce tour (règle : piocher, ou jouer, pas les deux)
+    if !partie.a_deja_joue_ce_tour() {
+        coups.push(Coup::Piocher);
+    }
 
     Ok(coups)
 }
