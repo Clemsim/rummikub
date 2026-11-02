@@ -27,6 +27,33 @@ pub struct Partie {
     pub tour: Tour,
 }
 
+/// Vue d'une partie telle qu'un joueur donné est autorisé à la voir : le
+/// plateau, les comptes et l'état du tour sont publics, seule la main du
+/// joueur concerné est visible en détail.
+#[derive(Debug, Clone)]
+pub struct VuePartie {
+    /// Le joueur pour qui la vue est construite
+    pub id_joueur: usize,
+    pub index_joueur_courant: usize,
+    pub plateau: Plateau,
+    /// Le contenu de la pioche reste secret, seul son nombre est public
+    pub taille_pioche: usize,
+    pub gagnant: Option<usize>,
+    pub joueurs: Vec<VueJoueur>,
+}
+
+/// Un joueur vu depuis une partie : le contenu de sa main n'apparaît que
+/// dans la vue du joueur lui-même
+#[derive(Debug, Clone)]
+pub struct VueJoueur {
+    pub id: usize,
+    pub nom: String,
+    pub a_fait_pose_initiale: bool,
+    pub taille_main: usize,
+    /// Présente uniquement dans la vue du joueur lui-même
+    pub main: Option<Vec<Tuile>>,
+}
+
 impl Partie {
     /// Nombre de tuiles distribuées à chaque joueur en début de partie
     pub const TUILES_PAR_JOUEUR: usize = 14;
@@ -274,6 +301,39 @@ impl Partie {
             .iter()
             .find(|joueur| joueur.main.is_empty())
             .map(|joueur| joueur.id)
+    }
+
+    /// Construit la vue de la partie pour le joueur identifié par `id_joueur`.
+    /// Fonction pure : la partie n'est pas modifiée, et les mains des autres
+    /// joueurs sont remplacées par leur seule taille.
+    pub fn vue_pour(&self, id_joueur: usize) -> Result<VuePartie, String> {
+        let id_vue = self
+            .joueurs
+            .iter()
+            .find(|joueur| joueur.id == id_joueur)
+            .ok_or_else(|| format!("Aucun joueur avec l'identifiant {}.", id_joueur))?
+            .id;
+
+        let joueurs = self
+            .joueurs
+            .iter()
+            .map(|joueur| VueJoueur {
+                id: joueur.id,
+                nom: joueur.nom.clone(),
+                a_fait_pose_initiale: joueur.a_fait_pose_initiale,
+                taille_main: joueur.main.len(),
+                main: (joueur.id == id_vue).then(|| joueur.main.clone()),
+            })
+            .collect();
+
+        Ok(VuePartie {
+            id_joueur: id_vue,
+            index_joueur_courant: self.index_joueur_courant,
+            plateau: self.plateau.clone(),
+            taille_pioche: self.pioche.len(),
+            gagnant: self.gagnant(),
+            joueurs,
+        })
     }
 }
 

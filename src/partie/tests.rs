@@ -360,3 +360,32 @@ fn test_meme_graine_meme_distribution() {
         Partie::nouvelle_avec_graine(vec!["Alice".to_string(), "Bob".to_string()], 43).unwrap();
     assert_ne!(partie_a.joueurs[0].main, partie_c.joueurs[0].main);
 }
+
+#[test]
+fn test_vue_pour_ne_montrer_que_sa_propre_main() {
+    let mut partie = partie_deux_joueurs();
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+    ];
+
+    let vue_alice = partie.vue_pour(0).unwrap();
+
+    // Alice voit sa propre main en détail
+    assert_eq!(vue_alice.joueurs[0].main.as_ref().unwrap().len(), 3);
+    assert_eq!(vue_alice.joueurs[0].taille_main, 3);
+
+    // Bob n'est visible que par la taille de sa main
+    assert!(vue_alice.joueurs[1].main.is_none());
+    assert_eq!(vue_alice.joueurs[1].taille_main, 14);
+
+    // Le plateau, la taille de la pioche et l'état du tour sont publics
+    assert!(vue_alice.plateau.combinaisons.is_empty());
+    assert_eq!(vue_alice.taille_pioche, 106 - 2 * 14);
+    assert_eq!(vue_alice.index_joueur_courant, 0);
+    assert_eq!(vue_alice.gagnant, None);
+
+    // Identifiant inconnu : erreur
+    assert!(partie.vue_pour(9).is_err());
+}
