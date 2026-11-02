@@ -179,7 +179,7 @@ fn test_apres_pose_initiale_les_poses_libres_sont_enumerees() {
             &[(Couleur::Rouge, 7), (Couleur::Bleu, 7), (Couleur::Jaune, 7)],
             0
         ),
-        Coup::Manipuler(_) | Coup::Piocher => false,
+        Coup::Manipuler(_) | Coup::Terminer | Coup::Piocher => false,
     }));
     // ...et piocher termine la liste
     assert_eq!(coups.last(), Some(&Coup::Piocher));
@@ -430,4 +430,31 @@ fn test_pas_de_manipulation_avant_sa_propre_pose_initiale() {
     let coups = coups_possibles(&partie).unwrap();
     assert!(coups.iter().all(|coup| !matches!(coup, Coup::Manipuler(_))));
     assert_eq!(coups, vec![Coup::Piocher]);
+}
+
+#[test]
+fn test_terminer_le_tour_est_un_coup() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+    ];
+
+    // Avant d'avoir joué, avec une pioche non vide : pas de Terminer
+    partie.ouvrir_tour();
+    let coups = coups_possibles(&partie).unwrap();
+    assert!(!coups.iter().any(|coup| matches!(coup, Coup::Terminer)));
+
+    // Après une pose : Terminer devient disponible
+    let groupe = Combinaison::nouvelle(partie.joueurs[0].main.clone());
+    jouer_coup(&mut partie, Coup::Poser(vec![groupe])).unwrap();
+    let coups = coups_possibles(&partie).unwrap();
+    assert!(coups.iter().any(|coup| matches!(coup, Coup::Terminer)));
+
+    // Et il fait ce qu'on attend : fin du tour, joueur suivant
+    let points = jouer_coup(&mut partie, Coup::Terminer).unwrap();
+    assert_eq!(points, 0);
+    assert_eq!(partie.index_joueur_courant, 1);
 }

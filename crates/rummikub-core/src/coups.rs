@@ -21,6 +21,8 @@ pub enum Coup {
     /// Remanier le plateau : soumettre un nouvel état complet où rien ne
     /// disparaît et où chaque nouvelle tuile vient de la main
     Manipuler(Vec<Combinaison>),
+    /// Terminer son tour (légal après avoir joué, ou à pioche vide pour passer)
+    Terminer,
     /// Piocher une tuile (termine le tour ; passe si la pioche est vide)
     Piocher,
 }
@@ -144,7 +146,8 @@ fn suites_possibles(main: &[Tuile]) -> Vec<Combinaison> {
 
 /// Énumère les coups que le joueur courant peut tenter ; le tour doit être
 /// ouvert (ouvrir_tour). Ordre du résultat : les poses par points
-/// décroissants, puis les manipulations, puis Piocher en dernier.
+/// décroissants, puis les manipulations, puis Terminer (si disponible) et
+/// Piocher en dernier.
 ///
 /// Simplifications assumées de cette version :
 /// - avant la pose initiale, les poses combinées couvrent les paires de
@@ -189,8 +192,14 @@ pub fn coups_possibles(partie: &Partie) -> Result<Vec<Coup>, String> {
         }
         // les manipulations ne rapportent pas de points : après toutes les poses
         Coup::Manipuler(_) => std::cmp::Reverse(0),
+        Coup::Terminer => std::cmp::Reverse(0),
         Coup::Piocher => std::cmp::Reverse(0),
     });
+    // Terminer son tour est légal après avoir joué quelque chose, ou à
+    // pioche vide (la passe est alors la seule action possible)
+    if partie.a_deja_joue_ce_tour() || partie.pioche.is_empty() {
+        coups.push(Coup::Terminer);
+    }
     coups.push(Coup::Piocher);
 
     Ok(coups)
@@ -332,6 +341,10 @@ pub fn jouer_coup(partie: &mut Partie, coup: Coup) -> Result<u32, String> {
         Coup::Poser(combinaisons) => partie.poser_combinaisons(combinaisons),
         Coup::Manipuler(combinaisons) => {
             partie.soumettre_plateau(combinaisons)?;
+            Ok(0)
+        }
+        Coup::Terminer => {
+            partie.terminer_tour()?;
             Ok(0)
         }
         Coup::Piocher => partie.piocher().map(|_| 0),

@@ -346,6 +346,22 @@ fn test_winner_when_hand_is_empty() {
 }
 
 #[test]
+fn test_une_partie_est_clonable() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["Alice".to_string(), "Bob".to_string()], 5).unwrap();
+    let copie = partie.clone();
+
+    // La partie originale avance, la copie reste figée à l'instant initial
+    partie.ouvrir_tour();
+    partie.piocher().unwrap().unwrap();
+
+    assert!(matches!(copie.tour, Tour::Repos));
+    assert_eq!(copie.index_joueur_courant, 0);
+    assert_eq!(copie.pioche.len(), 106 - 2 * 14);
+    assert_eq!(copie.joueurs[0].main.len(), 14);
+}
+
+#[test]
 fn test_meme_graine_meme_distribution() {
     let noms = vec!["Alice".to_string(), "Bob".to_string()];
     let partie_a = Partie::nouvelle_avec_graine(noms.clone(), 42).unwrap();

@@ -7,16 +7,17 @@ use std::collections::HashSet;
 /// État du tour en cours dans la partie
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Tour {
-    /// Aucun tour ouvert : le joueur courant doit ouvrir son tour (ouvrir_tour)
+    /// Aucun tour ouvert : le joueur courant doit ouvrir son tour (start_turn)
     Repos,
     /// Tour ouvert : l'état du plateau et la main du joueur courant au début
-    /// du tour sont conservés pour permettre une annulation (annuler_tour)
+    /// du tour sont conservés pour permettre une annulation (cancel_turn)
     Ouvert {
         plateau_debut: Plateau,
         main_debut: Vec<Tuile>,
     },
 }
 
+#[derive(Debug, Clone)]
 pub struct Partie {
     pub joueurs: Vec<Joueur>,
     pub index_joueur_courant: usize,
@@ -282,7 +283,9 @@ impl Partie {
     }
 
     /// Le joueur a-t-il déjà posé ou manipulé pendant le tour en cours ?
-    fn a_deja_joue_ce_tour(&self) -> bool {
+    /// (public : les IA en ont besoin pour savoir si terminer le tour est
+    /// une option légale)
+    pub fn a_deja_joue_ce_tour(&self) -> bool {
         match &self.tour {
             Tour::Ouvert { plateau_debut, .. } => *plateau_debut != self.plateau,
             Tour::Repos => false,
