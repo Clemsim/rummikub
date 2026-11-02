@@ -2,9 +2,9 @@
 //! publique de la bibliothèque, pour vérifier qu'elle est bien utilisable
 //! depuis l'extérieur du crate.
 
-use rummikub::combinaison::Combinaison;
-use rummikub::partie::{Partie, Tour};
-use rummikub::tuile::{Couleur, Tuile};
+use rummikub_core::combinaison::Combinaison;
+use rummikub_core::partie::{Partie, Tour};
+use rummikub_core::tuile::{Couleur, Tuile};
 
 #[test]
 fn test_full_game_to_victory() {

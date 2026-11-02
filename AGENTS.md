@@ -2,7 +2,7 @@
 
 ## Project
 
-Rummikub game logic as a library (`src/lib.rs`, no I/O) with a thin demo binary (`src/main.rs`). Modules are declared in `src/lib.rs`; unit tests live in dedicated `src/<module>/tests.rs` files, each declared with `#[cfg(test)] mod tests;`, plus integration tests in `tests/`. Edition 2024 — requires a recent toolchain (1.85+).
+Rummikub game logic as a library (package `rummikub-core`, lib target `rummikub_core`, `src/lib.rs`, no I/O) with a thin demo binary (`src/main.rs`, bin target `rummikub`). Modules are declared in `src/lib.rs`; unit tests live in dedicated `src/<module>/tests.rs` files, each declared with `#[cfg(test)] mod tests;`, plus integration tests in `tests/`. Edition 2024 — requires a recent toolchain (1.85+).
 
 ## Gotchas
 

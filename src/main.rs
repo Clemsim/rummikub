@@ -1,5 +1,5 @@
 // Démo du moteur de jeu : la logique vit dans la bibliothèque (src/lib.rs).
-use rummikub::{
+use rummikub_core::{
     combinaison::Combinaison,
     joueur::Joueur,
     partie::Partie,
