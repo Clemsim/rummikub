@@ -5,3 +5,5 @@
 
 // Naming français délibéré : le lint non_snake_case reste désactivé ici aussi.
 #![allow(non_snake_case)]
+
+pub mod bot_heuristique;
