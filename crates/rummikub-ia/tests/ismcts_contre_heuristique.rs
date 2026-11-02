@@ -18,6 +18,7 @@ fn test_ismcts_contre_bot_heuristique() {
     let ismcts = IsMcts {
         simulations: 40,
         profondeur_rollout: 12,
+        threads: 1,
         ..Default::default()
     };
 
