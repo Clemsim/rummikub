@@ -61,81 +61,88 @@ impl Combinaison {
     /// Analyse la suite et retourne (start_value_min, start_value_max) si la suite est valide.
     /// Une suite de longueur L démarrant à `S` couvrira [S ..= S + L - 1].
     fn resolve_run_range(&self) -> Option<(u8, u8)> {
-        let len = self.Tuiles.len();
+        let longueur = self.Tuiles.len();
         // Une suite ne peut pas dépasser 13 tuiles (1 à 13)
-        if !(3..=13).contains(&len) {
+        if !(3..=13).contains(&longueur) {
             return None;
         }
 
-        let mut jokers_count: usize = 0;
-        let mut standard_values = Vec::new();
-        let mut run_color: Option<Color> = None;
+        let (jokers, mut valeurs) = self.jokers_et_valeurs_de_suite()?;
+        valeurs.sort_unstable();
 
-        for Tuile in &self.Tuiles {
-            match Tuile.Type {
-                TuileType::Joker => jokers_count += 1,
+        if !Self::valeurs_sans_doublon(&valeurs) {
+            return None; // Doublon détecté (ex : deux 5 rouges)
+        }
+
+        // Jokers restants une fois les trous internes comblés
+        // (None s'il n'y en a pas assez)
+        let jokers_restants = Self::jokers_restants(&valeurs, jokers)? as u8;
+        let v_min = *valeurs.first().unwrap();
+        let v_max = *valeurs.last().unwrap();
+        let longueur_u8 = longueur as u8;
+
+        // La valeur de début S doit satisfaire :
+        // 1. S >= 1
+        // 2. S <= v_min (la plus petite valeur standard doit être couverte)
+        // 3. S + longueur - 1 <= 13 => S <= 14 - longueur (fin de suite dans les bornes)
+        // 4. S + longueur - 1 >= v_max => S >= v_max + 1 - longueur
+        //    (la plus grande valeur standard doit être couverte)
+        let debut_min = 1u8
+            .max(v_min.saturating_sub(jokers_restants))
+            .max((v_max + 1).saturating_sub(longueur_u8));
+        let debut_max = v_min.min(14u8.saturating_sub(longueur_u8));
+
+        if debut_min <= debut_max {
+            Some((debut_min, debut_max))
+        } else {
+            None
+        }
+    }
+
+    /// Valeurs des tuiles standard d'une suite, accompagnées du nombre de jokers.
+    /// Retourne None si les couleurs ne concordent pas toutes, ou s'il n'y a que
+    /// des jokers (impossible : le jeu n'en contient que 2).
+    fn jokers_et_valeurs_de_suite(&self) -> Option<(usize, Vec<u8>)> {
+        let mut jokers: usize = 0;
+        let mut valeurs: Vec<u8> = Vec::new();
+        let mut couleur: Option<Color> = None;
+
+        for tuile in &self.Tuiles {
+            match tuile.Type {
+                TuileType::Joker => jokers += 1,
                 TuileType::Standard { color, value } => {
-                    if let Some(expected_color) = run_color {
-                        if color != expected_color {
+                    if let Some(couleur_attendue) = couleur {
+                        if color != couleur_attendue {
                             return None; // Couleurs différentes
                         }
                     } else {
-                        run_color = Some(color);
+                        couleur = Some(color);
                     }
-                    standard_values.push(value);
+                    valeurs.push(value);
                 }
             }
         }
 
-        // Cas extrême : que des jokers (impossible car le jeu n'a que 2 jokers et len >= 3)
-        if standard_values.is_empty() {
+        if valeurs.is_empty() {
             return None;
         }
 
-        // Trier les valeurs standard
-        standard_values.sort_unstable();
+        Some((jokers, valeurs))
+    }
 
-        // 1. Vérifier qu'il n'y a pas de doublons
-        for pair in standard_values.windows(2) {
-            if pair[0] == pair[1] {
-                return None; // Doublon détecté (ex: deux 5 rouges)
-            }
-        }
+    /// Les valeurs triées d'une suite ne doivent pas contenir de doublon
+    fn valeurs_sans_doublon(valeurs_triees: &[u8]) -> bool {
+        valeurs_triees.windows(2).all(|paire| paire[0] != paire[1])
+    }
 
-        // 2. Calculer le nombre de jokers nécessaires pour combler les trous internes
-        let mut internal_jokers_needed: usize = 0;
-        for pair in standard_values.windows(2) {
-            let gap = (pair[1] - pair[0] - 1) as usize;
-            internal_jokers_needed += gap;
-        }
-
-        if internal_jokers_needed > jokers_count {
-            return None; // Pas assez de jokers pour combler les trous
-        }
-
-        let remaining_jokers = (jokers_count - internal_jokers_needed) as u8;
-        let v_min = *standard_values.first().unwrap();
-        let v_max = *standard_values.last().unwrap();
-        let total_len = len as u8;
-
-        // La valeur de début S doit satisfaire :
-        // 1. S >= 1
-        // 2. S + total_len - 1 <= 13 => S <= 14 - total_len
-        // 3. S doit être dans l'intervalle permis par les jokers restants :
-        //    v_min - remaining_jokers <= S <= v_min
-        let min_s = 1.max(v_min.saturating_sub(remaining_jokers));
-        let max_s = v_min.min(14_u8.saturating_sub(total_len));
-
-        // De plus, la tuile max ne doit pas dépasser la fin :
-        // S + total_len - 1 >= v_max => S >= v_max + 1 - total_len
-        let lower_bound_from_vmax = (v_max + 1).saturating_sub(total_len);
-        let final_min_s = min_s.max(lower_bound_from_vmax);
-
-        if final_min_s <= max_s {
-            Some((final_min_s, max_s))
-        } else {
-            None
-        }
+    /// Jokers restants une fois les trous entre valeurs standard comblés.
+    /// Retourne None s'il n'y a pas assez de jokers pour les combler.
+    fn jokers_restants(valeurs_triees: &[u8], jokers: usize) -> Option<usize> {
+        let trous: usize = valeurs_triees
+            .windows(2)
+            .map(|paire| (paire[1] - paire[0] - 1) as usize)
+            .sum();
+        jokers.checked_sub(trous)
     }
 
     /// Calcule la valeur en points de la combinaison.
