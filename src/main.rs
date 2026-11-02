@@ -2,38 +2,35 @@
 // est désactivé pour tout le projet, ne pas renommer en anglais.
 #![allow(non_snake_case)]
 
-mod board;
-mod game;
-mod meld;
-mod player;
+mod combinaison;
+mod joueur;
+mod partie;
+mod plateau;
 mod tuile;
 
-use game::Game;
-use meld::Meld;
-use player::Player;
+use combinaison::Combinaison;
+use joueur::Joueur;
+use partie::Partie;
 use tuile::{Color, Tuile, generate_pool, shuffle_pool};
 
 fn main() {
-    // 1. Génération & Mélange du pool
-    let mut pool = generate_pool();
-    println!("Sac généré avec {} tuiles.", pool.len());
-    shuffle_pool(&mut pool);
+    // 1. Génération & Mélange de la pioche
+    let mut pioche = generate_pool();
+    println!("Sac généré avec {} tuiles.", pioche.len());
+    shuffle_pool(&mut pioche);
 
     // 2. Test d'une suite avec Joker
     // Exemple : Joker, 8 Bleu, 10 Bleu (Le joker prend la place du 9 Bleu -> suite 8, 9, 10)
-    let run_meld = Meld::new(vec![
+    let suite = Combinaison::new(vec![
         Tuile::new_standard(1, Color::Blue, 8),
         Tuile::new_joker(2),
         Tuile::new_standard(3, Color::Blue, 10),
     ]);
-    println!(
-        "La suite [8, Joker, 10] est valide ? {}",
-        run_meld.is_valid()
-    );
-    println!("Points de cette suite : {}", run_meld.points()); // 8 + 9 + 10 = 27
+    println!("La suite [8, Joker, 10] est valide ? {}", suite.is_valid());
+    println!("Points de cette suite : {}", suite.points()); // 8 + 9 + 10 = 27
 
     // 3. Test de la pose initiale (30 points)
-    let mut player = Player::new(
+    let mut joueur = Joueur::new(
         1,
         "Alice".to_string(),
         vec![
@@ -46,26 +43,26 @@ fn main() {
         ],
     );
 
-    let group_meld = Meld::new(vec![
+    let groupe = Combinaison::new(vec![
         Tuile::new_standard(4, Color::Red, 7),
         Tuile::new_standard(5, Color::Black, 7),
         Tuile::new_standard(6, Color::Yellow, 7),
     ]); // 7 * 3 = 21 points
 
     // Total = 27 + 21 = 48 points (>= 30)
-    match player.play_initial_meld(&[run_meld, group_meld]) {
+    match joueur.play_initial_meld(&[suite, groupe]) {
         Ok(pts) => println!("Pose initiale validée avec succès avec {} points !", pts),
         Err(err) => println!("Erreur : {}", err),
     }
 
-    println!("Nombre de tuiles restantes en main : {}", player.hand.len());
+    println!("Nombre de tuiles restantes en main : {}", joueur.main.len());
 
     // 4. Partie à 2 joueurs (mains imposées pour une démo déterministe)
-    let mut partie = Game::new(vec!["Alice".to_string(), "Bob".to_string()])
+    let mut partie = Partie::new(vec!["Alice".to_string(), "Bob".to_string()])
         .expect("2 joueurs est une configuration valide");
 
     // Alice reçoit un groupe de 4 dizaines et une tuile supplémentaire
-    partie.players[0].hand = vec![
+    partie.joueurs[0].main = vec![
         Tuile::new_standard(200, Color::Red, 10),
         Tuile::new_standard(201, Color::Blue, 10),
         Tuile::new_standard(202, Color::Yellow, 10),
@@ -74,7 +71,7 @@ fn main() {
     ];
 
     partie.start_turn();
-    let groupe = Meld::new(vec![
+    let groupe = Combinaison::new(vec![
         Tuile::new_standard(200, Color::Red, 10),
         Tuile::new_standard(201, Color::Blue, 10),
         Tuile::new_standard(202, Color::Yellow, 10),
@@ -88,7 +85,7 @@ fn main() {
 
     // Tour de Bob : manipulation refusée avant sa pose initiale, il pioche
     partie.start_turn();
-    match partie.submit_board(partie.board.melds.clone()) {
+    match partie.submit_board(partie.plateau.combinaisons.clone()) {
         Ok(()) => println!("Bob : manipulation acceptée"),
         Err(err) => println!("Bob : manipulation refusée ({})", err),
     }
@@ -96,14 +93,14 @@ fn main() {
         Ok(Some(tuile)) => println!(
             "Bob pioche la tuile ID {} ({} tuiles restent en pioche).",
             tuile.id,
-            partie.pool.len()
+            partie.pioche.len()
         ),
         Ok(None) => println!("Bob passe son tour : la pioche est vide."),
         Err(err) => println!("Erreur : {}", err),
     }
 
     match partie.winner() {
-        Some(id) => println!("{} a gagné !", partie.players[id].name),
+        Some(id) => println!("{} a gagné !", partie.joueurs[id].nom),
         None => println!("Pas encore de gagnant."),
     }
 }

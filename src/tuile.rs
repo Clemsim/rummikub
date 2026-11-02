@@ -46,7 +46,7 @@ impl Tuile {
 
 /// Génère les 106 tuiles du jeu (4 couleurs * 13 valeurs * 2 exemplaires + 2 jokers)
 pub fn generate_pool() -> Vec<Tuile> {
-    let mut pool = Vec::with_capacity(106);
+    let mut pioche = Vec::with_capacity(106);
     let mut current_id: u8 = 0;
 
     let colors = [Color::Red, Color::Blue, Color::Yellow, Color::Black];
@@ -55,24 +55,24 @@ pub fn generate_pool() -> Vec<Tuile> {
     for _ in 0..2 {
         for &color in &colors {
             for value in 1..=13 {
-                pool.push(Tuile::new_standard(current_id, color, value));
+                pioche.push(Tuile::new_standard(current_id, color, value));
                 current_id += 1;
             }
         }
     }
 
     // 2 Jokers
-    pool.push(Tuile::new_joker(current_id));
+    pioche.push(Tuile::new_joker(current_id));
     current_id += 1;
-    pool.push(Tuile::new_joker(current_id));
+    pioche.push(Tuile::new_joker(current_id));
 
-    pool
+    pioche
 }
 
 /// Mélange le sac de tuiles aléatoirement
-pub fn shuffle_pool(pool: &mut [Tuile]) {
+pub fn shuffle_pool(pioche: &mut [Tuile]) {
     let mut rng = rand::rng();
-    pool.shuffle(&mut rng);
+    pioche.shuffle(&mut rng);
 }
 
 #[cfg(test)]

@@ -1,23 +1,22 @@
-
 use super::*;
 use std::collections::{HashMap, HashSet};
 
 #[test]
 fn test_generate_pool_contains_106_unique_tiles() {
-    let pool = generate_pool();
-    assert_eq!(pool.len(), 106);
+    let pioche = generate_pool();
+    assert_eq!(pioche.len(), 106);
 
     // Identifiants uniques de 0 à 105
-    let ids: HashSet<u8> = pool.iter().map(|t| t.id).collect();
+    let ids: HashSet<u8> = pioche.iter().map(|t| t.id).collect();
     assert_eq!(ids.len(), 106);
     assert_eq!(*ids.iter().max().unwrap(), 105);
 
     // Exactement 2 jokers
-    assert_eq!(pool.iter().filter(|t| t.is_joker()).count(), 2);
+    assert_eq!(pioche.iter().filter(|t| t.is_joker()).count(), 2);
 
     // Chaque couple (couleur, valeur) présent exactement 2 fois
     let mut counts: HashMap<(Color, u8), usize> = HashMap::new();
-    for tuile in &pool {
+    for tuile in &pioche {
         if let TuileType::Standard { color, value } = tuile.Type {
             *counts.entry((color, value)).or_insert(0) += 1;
         }
@@ -40,13 +39,13 @@ fn test_new_standard_rejects_value_above_13() {
 
 #[test]
 fn test_shuffle_pool_keeps_all_tiles() {
-    let mut pool = generate_pool();
-    let mut before: Vec<u8> = pool.iter().map(|t| t.id).collect();
+    let mut pioche = generate_pool();
+    let mut before: Vec<u8> = pioche.iter().map(|t| t.id).collect();
     before.sort_unstable();
 
-    shuffle_pool(&mut pool);
+    shuffle_pool(&mut pioche);
 
-    let mut after: Vec<u8> = pool.iter().map(|t| t.id).collect();
+    let mut after: Vec<u8> = pioche.iter().map(|t| t.id).collect();
     after.sort_unstable();
     assert_eq!(before, after);
 }

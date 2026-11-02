@@ -1,22 +1,22 @@
-use crate::meld::Meld;
+use crate::combinaison::Combinaison;
 use crate::tuile::Tuile;
 use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
-pub struct Player {
+pub struct Joueur {
     pub id: usize,
-    pub name: String,
-    pub hand: Vec<Tuile>,
-    pub has_completed_initial_meld: bool,
+    pub nom: String,
+    pub main: Vec<Tuile>,
+    pub a_fait_pose_initiale: bool,
 }
 
-impl Player {
-    pub fn new(id: usize, name: String, hand: Vec<Tuile>) -> Self {
+impl Joueur {
+    pub fn new(id: usize, nom: String, main: Vec<Tuile>) -> Self {
         Self {
             id,
-            name,
-            hand,
-            has_completed_initial_meld: false,
+            nom,
+            main,
+            a_fait_pose_initiale: false,
         }
     }
 
@@ -24,25 +24,25 @@ impl Player {
     /// doit être valide, et toutes les tuiles doivent provenir de la main du
     /// joueur, sans réutilisation.
     /// Retourne (points totaux, identifiants des tuiles jouées).
-    fn check_proposal(&self, proposed_melds: &[Meld]) -> Result<(u32, HashSet<u8>), String> {
+    fn check_proposal(&self, proposed_melds: &[Combinaison]) -> Result<(u32, HashSet<u8>), String> {
         if proposed_melds.is_empty() {
             return Err("Aucune combinaison proposée.".to_string());
         }
 
         // 1. Vérifier que chaque combinaison est valide
-        for (i, meld) in proposed_melds.iter().enumerate() {
-            if !meld.is_valid() {
+        for (i, combinaison) in proposed_melds.iter().enumerate() {
+            if !combinaison.is_valid() {
                 return Err(format!("La combinaison n°{} est invalide.", i + 1));
             }
         }
 
         // 2. Vérifier que toutes les tuiles proviennent de la main du joueur (sans réutilisation)
         let mut played_Tuile_ids = HashSet::new();
-        let hand_ids: HashSet<u8> = self.hand.iter().map(|t| t.id).collect();
+        let ids_main: HashSet<u8> = self.main.iter().map(|t| t.id).collect();
 
-        for meld in proposed_melds {
-            for Tuile in &meld.Tuiles {
-                if !hand_ids.contains(&Tuile.id) {
+        for combinaison in proposed_melds {
+            for Tuile in &combinaison.Tuiles {
+                if !ids_main.contains(&Tuile.id) {
                     return Err(format!(
                         "La tuile ID {} ne provient pas de la main du joueur.",
                         Tuile.id
@@ -64,8 +64,8 @@ impl Player {
     }
 
     /// Valide et applique la pose initiale (>= 30 points, uniquement depuis la main)
-    pub fn play_initial_meld(&mut self, proposed_melds: &[Meld]) -> Result<u32, String> {
-        if self.has_completed_initial_meld {
+    pub fn play_initial_meld(&mut self, proposed_melds: &[Combinaison]) -> Result<u32, String> {
+        if self.a_fait_pose_initiale {
             return Err("La pose initiale a déjà été réalisée.".to_string());
         }
 
@@ -79,14 +79,14 @@ impl Player {
         }
 
         self.remove_played_tiles(&played_Tuile_ids);
-        self.has_completed_initial_meld = true;
+        self.a_fait_pose_initiale = true;
 
         Ok(total_points)
     }
 
     /// Valide et applique la pose de combinaisons depuis la main
     /// (à utiliser après la pose initiale : pas d'exigence de 30 points ici)
-    pub fn play_melds(&mut self, proposed_melds: &[Meld]) -> Result<u32, String> {
+    pub fn play_melds(&mut self, proposed_melds: &[Combinaison]) -> Result<u32, String> {
         let (total_points, played_Tuile_ids) = self.check_proposal(proposed_melds)?;
 
         self.remove_played_tiles(&played_Tuile_ids);
@@ -96,7 +96,7 @@ impl Player {
 
     /// Retire de la main les tuiles identifiées
     fn remove_played_tiles(&mut self, played_Tuile_ids: &HashSet<u8>) {
-        self.hand.retain(|t| !played_Tuile_ids.contains(&t.id));
+        self.main.retain(|t| !played_Tuile_ids.contains(&t.id));
     }
 }
 

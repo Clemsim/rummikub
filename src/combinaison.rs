@@ -2,11 +2,11 @@ use crate::tuile::{Color, Tuile, TuileType};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Meld {
+pub struct Combinaison {
     pub Tuiles: Vec<Tuile>,
 }
 
-impl Meld {
+impl Combinaison {
     pub fn new(Tuiles: Vec<Tuile>) -> Self {
         Self { Tuiles }
     }
