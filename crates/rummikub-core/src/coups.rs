@@ -10,7 +10,7 @@
 
 use crate::combinaison::Combinaison;
 use crate::partie::{Partie, Tour};
-use crate::tuile::{Couleur, Tuile, TuileType};
+use crate::tuile::{BitsetTuiles, Couleur, Tuile, TuileType};
 use std::collections::{BTreeMap, HashSet};
 
 /// Un coup que le joueur courant peut tenter, tour ouvert.
@@ -180,7 +180,7 @@ pub fn coups_possibles(partie: &Partie) -> Result<Vec<Coup>, String> {
             .map(|combinaison| Coup::Poser(vec![combinaison]))
             .collect()
     } else {
-        poses_initiales(&candidates)
+        poses_initiales(candidates)
     };
 
     // Les manipulations du plateau ne sont autorisées qu'après la pose initiale
@@ -216,34 +216,41 @@ pub fn coups_possibles(partie: &Partie) -> Result<Vec<Coup>, String> {
 }
 
 /// Les poses légales avant la pose initiale : les combinaisons valant au
-/// moins 30 points à elles seules, et les paires de combinaisons disjointes
-/// dont la somme atteint 30 (aucune des deux ne valant 30 seule — sinon la
-/// pose simple existe déjà, et une pose en deux temps suffit).
-fn poses_initiales(candidates: &[Combinaison]) -> Vec<Coup> {
-    let mut coups: Vec<Coup> = candidates
-        .iter()
-        .filter(|combinaison| combinaison.points() >= 30)
-        .map(|combinaison| Coup::Poser(vec![combinaison.clone()]))
+/// moins 30 points à elles seules (consommées, pas clonées), et les paires
+/// de combinaisons disjointes dont la somme atteint 30 (aucune des deux ne
+/// valant 30 seule — sinon la pose simple existe déjà, et une pose en deux
+/// temps suffit).
+fn poses_initiales(candidates: Vec<Combinaison>) -> Vec<Coup> {
+    let (grandes, petites): (Vec<Combinaison>, Vec<Combinaison>) = candidates
+        .into_iter()
+        .partition(|combinaison| combinaison.points() >= 30);
+
+    // Les poses simples consomment les grandes combinaisons (pas de clone)
+    let mut coups: Vec<Coup> = grandes
+        .into_iter()
+        .map(|combinaison| Coup::Poser(vec![combinaison]))
         .collect();
 
-    let petites: Vec<(&Combinaison, u32, HashSet<u8>)> = candidates
-        .iter()
-        .filter(|combinaison| combinaison.points() < 30)
+    // Les petites sont conservées pour le repérage des paires disjointes :
+    // chacune peut appartenir à plusieurs paires, le clone est inévitable ici
+    let petites: Vec<(Combinaison, u32, BitsetTuiles)> = petites
+        .into_iter()
         .map(|combinaison| {
-            (
-                combinaison,
-                combinaison.points(),
-                combinaison.Tuiles.iter().map(|t| t.id).collect(),
-            )
+            let points = combinaison.points();
+            let ids = BitsetTuiles::depuis_ids(combinaison.Tuiles.iter().map(|t| t.id));
+            (combinaison, points, ids)
         })
         .collect();
 
     for i in 0..petites.len() {
         for j in (i + 1)..petites.len() {
-            let (a, points_a, ids_a) = &petites[i];
-            let (b, points_b, ids_b) = &petites[j];
-            if points_a + points_b >= 30 && ids_a.is_disjoint(ids_b) {
-                coups.push(Coup::Poser(vec![(*a).clone(), (*b).clone()]));
+            let (_, points_a, ids_a) = &petites[i];
+            let (_, points_b, ids_b) = &petites[j];
+            if points_a + points_b >= 30 && ids_a.disjoint(ids_b) {
+                coups.push(Coup::Poser(vec![
+                    petites[i].0.clone(),
+                    petites[j].0.clone(),
+                ]));
             }
         }
     }
