@@ -71,3 +71,20 @@ flowchart TD
 - **Récompenses pour les rollouts non terminés** : estimer l'avantage
   courant au lieu de tout mettre à 0 — attention au reward shaping mal
   calibré.
+
+## Constats du flamegraph (2026-11-02)
+
+Profilage release d'un tournoi 5 graines × 50 simulations :
+
+- L'**allocation mémoire** domine (malloc/realloc/free ≈ 5% cumulés) : les
+  `Vec<Combinaison>` clonés pour chaque coup énuméré et chaque état de
+  manipulation sont la cible principale d'une future optimisation.
+- Le **hachage des identifiants de tuiles** (`HashSet<u8>` dans
+  `verifier_proposition`, `soumettre_plateau`, `plateau.ids_tuiles`,
+  `poses_initiales`) coûte ≈ 2-3% — remplaçable par des bitsets (106 tuiles
+  = 2 × u64) si besoin de vitesse.
+- La **surcharge rayon** (sched_yield, réveils de threads) est visible à
+  petit nombre de simulations : à 50 par décision, envisager moins de
+  threads ou plus de simulations par thread.
+- `combinaisons_possibles` elle-même n'est PAS le goulot d'étranglement :
+  c'est ce qui l'entoure (allocations + hachage) qui coûte.

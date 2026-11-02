@@ -1,3 +1,8 @@
 [workspace]
 resolver = "2"
 members = ["crates/rummikub-core", "crates/rummikub-ia"]
+
+# Les symboles de debug en release servent au profilage (cargo flamegraph)
+# sans ralentir l'exécution optimisée.
+[profile.release]
+debug = true

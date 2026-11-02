@@ -19,6 +19,8 @@ Cargo workspace. `crates/rummikub-core` holds the game logic: package `rummikub-
 - Single test: `cargo test -p rummikub-core <name>` (e.g. `cargo test -p rummikub-core test_valid_runs_with_jokers`)
 - `cargo clippy` and `cargo fmt` components are installed — run both before finalizing changes.
 - Bench: `cargo run -p rummikub-ia [graines] [simulations] [epsilon]` — ISMCTS vs the heuristic bot over fixed seeds; results are appended to `banc/resultats.csv`.
-- Epsilon sweep + curve: `cargo run -p rummikub-ia graphique [graines] [simulations]` — writes `banc/balayage-epsilon.csv` and `banc/graphique-epsilon.png`.
+- Epsilon sweep + curve: `cargo run -p rummikub-ia graphique [graines] [simulations]` — writes `banc/balayage-epsilon.csv` and `banc/graphique-epsilon.png`. Run benchmarks and sweeps with `--release` (5-7x faster than debug).
+- Profiling: `[profile.release] debug = true` is set at the workspace root for `cargo flamegraph`; `perf.data` and `flamegraph.svg` are gitignored.
+- Terminal chart fallback if ever needed: the `textplots` crate draws an instant ASCII curve (plotters stays the main choice for PNG/SVG).
 - Architecture decisions live in `docs/adr/` — read them before touching the
   move enumeration (determinism, scope), and record significant decisions there.
