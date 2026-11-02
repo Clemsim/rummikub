@@ -58,6 +58,12 @@ pub struct IsMcts {
     /// heuristique est joué avec probabilité 1−ε). 1.0 = rollouts aléatoires,
     /// 0.0 = rollouts entièrement heuristiques
     pub epsilon_rollout: f64,
+    /// Élargissement progressif : α dans la formule k = α·N^β qui plafonne le
+    /// nombre d'enfants d'un nœud visité N fois (1.0 = classique)
+    pub alpha_elargissement: f64,
+    /// Élargissement progressif : β dans k = α·N^β (0.5 = racine carrée ;
+    /// 1.0 annule l'effet de dosage progressif)
+    pub beta_elargissement: f64,
     /// Nombre de threads pour la parallélisation à la racine ; 0 = auto
     pub threads: usize,
     /// Graine du générateur aléatoire
@@ -71,6 +77,8 @@ impl Default for IsMcts {
             profondeur_rollout: 30,
             exploration: std::f64::consts::SQRT_2,
             epsilon_rollout: 0.2,
+            alpha_elargissement: 1.0,
+            beta_elargissement: 0.5,
             threads: 0,
             graine: 0,
         }
@@ -250,9 +258,16 @@ fn descente(
     ouvrir_si_necessaire(etat);
     let coups = coups_possibles(etat)?;
 
-    // Sélection : si tous les coups légaux ont déjà un enfant, on descend
-    // par UCB1 parmi les enfants dont le coup est encore légal ici
-    if coups.iter().all(|coup| noeud.possede(coup)) {
+    // Élargissement progressif (ADR 0006) : le nœud visité N fois n'admet
+    // que k = α·N^β enfants — peu au début (les premiers du tri par points),
+    // davantage si les visites s'accumulent.
+    let plafond = plafond_enfants(noeud.visites, params);
+    let non_developpes: Vec<&Coup> = coups.iter().filter(|coup| !noeud.possede(coup)).collect();
+
+    // Sélection : tout est déjà développé, ou le plafond d'enfants est
+    // atteint — on descend par UCB1 parmi les enfants dont le coup est
+    // encore légal ici
+    if non_developpes.is_empty() || noeud.enfants.len() >= plafond {
         let disponibles: Vec<usize> = (0..noeud.enfants.len())
             .filter(|index| coups.contains(&noeud.enfants[*index].coup))
             .collect();
@@ -284,13 +299,10 @@ fn descente(
         return Ok(recompenses);
     }
 
-    // Expansion : développer un coup légal pas encore présent dans l'arbre
-    let mut non_developpes: Vec<Coup> = coups
-        .iter()
-        .filter(|coup| !noeud.possede(coup))
-        .cloned()
-        .collect();
-    let coup = non_developpes.swap_remove(rng.random_range(0..non_developpes.len()));
+    // Expansion : développer le premier coup légal pas encore dans l'arbre.
+    // La liste est triée par points décroissants : ce coup est donc le
+    // meilleur candidat restant, et le choix est déterministe.
+    let coup = (*non_developpes[0]).clone();
 
     let joueur = etat.index_joueur_courant;
     jouer_coup(etat, coup.clone())?;
@@ -333,6 +345,15 @@ fn deroulement(etat: &mut Partie, rng: &mut StdRng, params: &IsMcts) -> Result<V
     }
 
     Ok(recompenses_finales(etat))
+}
+
+/// Nombre maximal d'enfants d'un nœud visité N fois : α × N^β (élargissement
+/// progressif). Au moins 1, pour que la première visite développe le meilleur
+/// coup.
+fn plafond_enfants(visites: u32, params: &IsMcts) -> usize {
+    (params.alpha_elargissement * (visites as f64).powf(params.beta_elargissement))
+        .floor()
+        .max(1.0) as usize
 }
 
 /// Le coup qu'un bot heuristique jouerait parmi les coups légaux : la
