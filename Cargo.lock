@@ -678,6 +678,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rummikub-apprentissage"
+version = "0.1.0"
+dependencies = [
+ "rummikub-core",
+]
+
+[[package]]
 name = "rummikub-core"
 version = "0.1.0"
 dependencies = [

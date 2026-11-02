@@ -4,7 +4,7 @@
 
 ## Project
 
-Cargo workspace. `crates/rummikub-core` holds the game logic: package `rummikub-core`, lib target `rummikub_core` (`src/lib.rs`, no I/O), plus a thin demo binary (bin target `rummikub`). `crates/rummikub-ia` holds the AI players (bots, search, learning) and only uses the core's public API — the AIs play through the same legal moves as humans. Modules are declared in each crate's `src/lib.rs`; unit tests live in dedicated `src/<module>/tests.rs` files, each declared with `#[cfg(test)] mod tests;`, plus integration tests in each crate's `tests/`. Edition 2024 — requires a recent toolchain (1.85+).
+Cargo workspace. `crates/rummikub-core` holds the game logic: package `rummikub-core`, lib target `rummikub_core` (`src/lib.rs`, no I/O), plus a thin demo binary (bin target `rummikub`). `crates/rummikub-ia` holds the AI players (bots, search) and only uses the core's public API — the AIs play through the same legal moves as humans. `crates/rummikub-apprentissage` holds the learning stack (state encoder, datasets, burn networks) and only uses the core's public API too. Modules are declared in each crate's `src/lib.rs`; unit tests live in dedicated `src/<module>/tests.rs` files, each declared with `#[cfg(test)] mod tests;`, plus integration tests in each crate's `tests/`. Edition 2024 — requires a recent toolchain (1.85+).
 
 ## Gotchas
 
