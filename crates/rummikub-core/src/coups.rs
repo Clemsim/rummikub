@@ -11,17 +11,18 @@
 use crate::combinaison::Combinaison;
 use crate::partie::{Partie, Tour};
 use crate::tuile::{Couleur, Tuile, TuileType};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 /// Un coup que le joueur courant peut tenter, tour ouvert.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Coup {
     /// Poser une ou plusieurs combinaisons construites depuis sa main
     Poser(Vec<Combinaison>),
+    /// Remanier le plateau : soumettre un nouvel état complet où rien ne
+    /// disparaît et où chaque nouvelle tuile vient de la main
+    Manipuler(Vec<Combinaison>),
     /// Piocher une tuile (termine le tour ; passe si la pioche est vide)
     Piocher,
-    // La manipulation complète du plateau (soumettre_plateau) sera énumérée
-    // plus tard : c'est l'espace de coups le plus coûteux à générer.
 }
 
 /// Énumère toutes les combinaisons valides constructibles depuis `main`
@@ -142,37 +143,52 @@ fn suites_possibles(main: &[Tuile]) -> Vec<Combinaison> {
 }
 
 /// Énumère les coups que le joueur courant peut tenter ; le tour doit être
-/// ouvert (ouvrir_tour). Les coups Poser sont triés par points décroissants,
-/// et Piocher vient en dernier.
+/// ouvert (ouvrir_tour). Ordre du résultat : les poses par points
+/// décroissants, puis les manipulations, puis Piocher en dernier.
 ///
-/// Simplification assumée de cette première version : chaque pose est un coup
-/// à une seule combinaison. Les poses combinant plusieurs combinaisons (pour
-/// atteindre les 30 points de la pose initiale) et les manipulations
-/// complètes du plateau seront énumérées plus tard.
+/// Simplifications assumées de cette version :
+/// - avant la pose initiale, les poses combinées couvrent les paires de
+///   combinaisons disjointes atteignant 30 points ; trois petites
+///   combinaisons (ex. 10 + 10 + 10) ne sont pas énumérées ;
+/// - les manipulations couvrent l'ajout d'une tuile de la main à une
+///   combinaison du plateau, et la libération du joker d'un groupe (la vraie
+///   tuile prend sa place, le joker rejoint une autre combinaison) ; libérer
+///   le joker d'une suite viendra ensuite.
 pub fn coups_possibles(partie: &Partie) -> Result<Vec<Coup>, String> {
     if !matches!(partie.tour, Tour::Ouvert { .. }) {
         return Err("Aucun tour en cours : appelez ouvrir_tour pour ouvrir un tour.".to_string());
     }
 
     let joueur = partie.joueur_courant();
-    let mut coups: Vec<Coup> = combinaisons_possibles(&joueur.main)
-        .into_iter()
-        .map(|combinaison| Coup::Poser(vec![combinaison]))
-        .collect();
+    let candidates = combinaisons_possibles(&joueur.main);
 
-    // Avant la pose initiale, seules les poses valant au moins 30 points
-    // d'un seul coup sont retenues
-    if !joueur.a_fait_pose_initiale {
-        coups.retain(|coup| match coup {
-            Coup::Poser(combinaisons) => combinaisons.iter().map(|c| c.points()).sum::<u32>() >= 30,
-            Coup::Piocher => true,
-        });
+    let mut coups: Vec<Coup> = if joueur.a_fait_pose_initiale {
+        // Chaque combinaison candidate est une pose possible à elle seule ;
+        // poser plusieurs combinaisons se fait en enchaînant plusieurs poses
+        // dans le même tour.
+        candidates
+            .into_iter()
+            .map(|combinaison| Coup::Poser(vec![combinaison]))
+            .collect()
+    } else {
+        poses_initiales(&candidates)
+    };
+
+    // Les manipulations du plateau ne sont autorisées qu'après la pose initiale
+    if joueur.a_fait_pose_initiale {
+        coups.extend(
+            manipulations_possibles(partie)
+                .into_iter()
+                .map(Coup::Manipuler),
+        );
     }
 
     coups.sort_by_key(|coup| match coup {
         Coup::Poser(combinaisons) => {
             std::cmp::Reverse(combinaisons.iter().map(|c| c.points()).sum::<u32>())
         }
+        // les manipulations ne rapportent pas de points : après toutes les poses
+        Coup::Manipuler(_) => std::cmp::Reverse(0),
         Coup::Piocher => std::cmp::Reverse(0),
     });
     coups.push(Coup::Piocher);
@@ -180,11 +196,144 @@ pub fn coups_possibles(partie: &Partie) -> Result<Vec<Coup>, String> {
     Ok(coups)
 }
 
+/// Les poses légales avant la pose initiale : les combinaisons valant au
+/// moins 30 points à elles seules, et les paires de combinaisons disjointes
+/// dont la somme atteint 30 (aucune des deux ne valant 30 seule — sinon la
+/// pose simple existe déjà, et une pose en deux temps suffit).
+fn poses_initiales(candidates: &[Combinaison]) -> Vec<Coup> {
+    let mut coups: Vec<Coup> = candidates
+        .iter()
+        .filter(|combinaison| combinaison.points() >= 30)
+        .map(|combinaison| Coup::Poser(vec![combinaison.clone()]))
+        .collect();
+
+    let petites: Vec<(&Combinaison, u32, HashSet<u8>)> = candidates
+        .iter()
+        .filter(|combinaison| combinaison.points() < 30)
+        .map(|combinaison| {
+            (
+                combinaison,
+                combinaison.points(),
+                combinaison.Tuiles.iter().map(|t| t.id).collect(),
+            )
+        })
+        .collect();
+
+    for i in 0..petites.len() {
+        for j in (i + 1)..petites.len() {
+            let (a, points_a, ids_a) = &petites[i];
+            let (b, points_b, ids_b) = &petites[j];
+            if points_a + points_b >= 30 && ids_a.is_disjoint(ids_b) {
+                coups.push(Coup::Poser(vec![(*a).clone(), (*b).clone()]));
+            }
+        }
+    }
+
+    coups
+}
+
+/// Énumère les manipulations du plateau réalisables en une seule étape avec
+/// la main du joueur courant. Chaque résultat est un état complet du plateau,
+/// prêt pour soumettre_plateau ; les chaînes de manipulations se font en
+/// enchaînant plusieurs coups dans le même tour.
+fn manipulations_possibles(partie: &Partie) -> Vec<Vec<Combinaison>> {
+    let main = &partie.joueur_courant().main;
+    let mut etats: Vec<Vec<Combinaison>> = Vec::new();
+
+    for (index_meld, meld) in partie.plateau.combinaisons.iter().enumerate() {
+        // 1. Ajouter une tuile de la main à cette combinaison du plateau
+        for tuile in main {
+            let mut etendue = meld.clone();
+            etendue.Tuiles.push(*tuile);
+            if etendue.est_valide() {
+                etats.push(etat_avec(partie, &[(index_meld, etendue)]));
+            }
+        }
+
+        // 2. Libérer le joker d'un groupe : la vraie tuile (depuis la main)
+        //    prend sa place, et le joker rejoint une autre combinaison.
+        if meld.est_groupe_valide()
+            && let Some(position_joker) = meld.Tuiles.iter().position(|t| t.est_joker())
+            && let Some(valeur) = valeur_du_groupe(meld)
+        {
+            let couleurs_groupe: HashSet<Couleur> = meld
+                .Tuiles
+                .iter()
+                .filter_map(|t| match t.Type {
+                    TuileType::Standard { couleur, .. } => Some(couleur),
+                    _ => None,
+                })
+                .collect();
+            let joker_libre = meld.Tuiles[position_joker];
+
+            for tuile in main {
+                let TuileType::Standard { couleur, valeur: v } = tuile.Type else {
+                    continue;
+                };
+                if v != valeur || couleurs_groupe.contains(&couleur) {
+                    continue;
+                }
+
+                let mut groupe_reconstitue = meld.clone();
+                groupe_reconstitue.Tuiles[position_joker] = *tuile;
+                if !groupe_reconstitue.est_valide() {
+                    continue;
+                }
+
+                for (autre_index, autre) in partie.plateau.combinaisons.iter().enumerate() {
+                    if autre_index == index_meld {
+                        continue;
+                    }
+                    let mut etendue = autre.clone();
+                    etendue.Tuiles.push(joker_libre);
+                    if etendue.est_valide() {
+                        etats.push(etat_avec(
+                            partie,
+                            &[
+                                (index_meld, groupe_reconstitue.clone()),
+                                (autre_index, etendue),
+                            ],
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    etats
+}
+
+/// L'état du plateau où les combinaisons listées dans `changements` sont
+/// remplacées (les autres restent inchangées)
+fn etat_avec(partie: &Partie, changements: &[(usize, Combinaison)]) -> Vec<Combinaison> {
+    partie
+        .plateau
+        .combinaisons
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !changements.iter().any(|(i, _)| i == index))
+        .map(|(_, meld)| meld.clone())
+        .chain(changements.iter().map(|(_, meld)| meld.clone()))
+        .collect()
+}
+
+/// La valeur définie par une combinaison de type groupe, s'il y en a une
+fn valeur_du_groupe(meld: &Combinaison) -> Option<u8> {
+    meld.Tuiles.iter().find_map(|t| match t.Type {
+        TuileType::Standard { valeur, .. } => Some(valeur),
+        _ => None,
+    })
+}
+
 /// Joue le coup donné pour le joueur courant (tour ouvert requis) : une pose
-/// retourne les points gagnés, une pioche retourne 0.
+/// retourne les points gagnés, une manipulation ou une pioche retourne 0.
 pub fn jouer_coup(partie: &mut Partie, coup: Coup) -> Result<u32, String> {
     match coup {
         Coup::Poser(combinaisons) => partie.poser_combinaisons(combinaisons),
+        Coup::Manipuler(combinaisons) => {
+            partie.soumettre_plateau(combinaisons)?;
+            Ok(0)
+        }
         Coup::Piocher => partie.piocher().map(|_| 0),
     }
 }
