@@ -30,8 +30,10 @@ pub enum Coup {
 /// Énumère toutes les combinaisons valides constructibles depuis `main`
 /// (groupes et suites, jokers compris).
 pub fn combinaisons_possibles(main: &[Tuile]) -> Vec<Combinaison> {
-    let mut possibles = groupes_possibles(main);
-    possibles.extend(suites_possibles(main));
+    // Un seul passage de classement, partagé entre groupes et suites
+    let (standard, jokers) = classer(main);
+    let mut possibles = groupes_depuis(&standard, &jokers);
+    possibles.extend(suites_depuis(&standard, &jokers));
     possibles
 }
 
@@ -58,9 +60,11 @@ fn classer(main: &[Tuile]) -> (BTreeMap<u8, BTreeMap<Couleur, Tuile>>, Vec<Tuile
 }
 
 /// Tous les groupes (3 ou 4 tuiles de même valeur et de couleurs distinctes)
-/// constructibles depuis la main, jokers compris.
-fn groupes_possibles(main: &[Tuile]) -> Vec<Combinaison> {
-    let (standard, jokers) = classer(main);
+/// constructibles depuis la main classée, jokers compris.
+fn groupes_depuis(
+    standard: &BTreeMap<u8, BTreeMap<Couleur, Tuile>>,
+    jokers: &[Tuile],
+) -> Vec<Combinaison> {
     let nb_jokers = jokers.len();
     let mut groupes = Vec::new();
 
@@ -96,15 +100,17 @@ fn groupes_possibles(main: &[Tuile]) -> Vec<Combinaison> {
 }
 
 /// Toutes les suites (3 à 13 tuiles de même couleur et de valeurs
-/// consécutives) constructibles depuis la main, les jokers comblant les
-/// valeurs manquantes.
-fn suites_possibles(main: &[Tuile]) -> Vec<Combinaison> {
-    let (standard, jokers) = classer(main);
+/// consécutives) constructibles depuis la main classée, les jokers comblant
+/// les valeurs manquantes.
+fn suites_depuis(
+    standard: &BTreeMap<u8, BTreeMap<Couleur, Tuile>>,
+    jokers: &[Tuile],
+) -> Vec<Combinaison> {
     let nb_jokers = jokers.len();
 
     // Transposition : par couleur, les valeurs disponibles (canoniques)
     let mut par_couleur: BTreeMap<Couleur, BTreeMap<u8, Tuile>> = BTreeMap::new();
-    for (valeur, exemplaires) in &standard {
+    for (valeur, exemplaires) in standard {
         for (couleur, tuile) in exemplaires {
             par_couleur
                 .entry(*couleur)
