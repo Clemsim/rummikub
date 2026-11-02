@@ -344,3 +344,19 @@ fn test_winner_when_hand_is_empty() {
     partie.joueurs[0].main.clear();
     assert_eq!(partie.gagnant(), Some(0));
 }
+
+#[test]
+fn test_meme_graine_meme_distribution() {
+    let noms = vec!["Alice".to_string(), "Bob".to_string()];
+    let partie_a = Partie::nouvelle_avec_graine(noms.clone(), 42).unwrap();
+    let partie_b = Partie::nouvelle_avec_graine(noms, 42).unwrap();
+
+    // Même graine : les mains distribuées sont identiques
+    assert_eq!(partie_a.joueurs[0].main, partie_b.joueurs[0].main);
+    assert_eq!(partie_a.joueurs[1].main, partie_b.joueurs[1].main);
+
+    // Graine différente : distribution différente (pratiquement certain)
+    let partie_c =
+        Partie::nouvelle_avec_graine(vec!["Alice".to_string(), "Bob".to_string()], 43).unwrap();
+    assert_ne!(partie_a.joueurs[0].main, partie_c.joueurs[0].main);
+}

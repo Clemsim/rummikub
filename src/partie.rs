@@ -1,7 +1,7 @@
 use crate::combinaison::Combinaison;
 use crate::joueur::Joueur;
 use crate::plateau::Plateau;
-use crate::tuile::{Tuile, generer_pioche, melanger_pioche};
+use crate::tuile::{Tuile, generer_pioche, melanger_pioche, melanger_pioche_avec_graine};
 use std::collections::HashSet;
 
 /// État du tour en cours dans la partie
@@ -31,9 +31,25 @@ impl Partie {
     /// Nombre de tuiles distribuées à chaque joueur en début de partie
     pub const TUILES_PAR_JOUEUR: usize = 14;
 
-    /// Prépare une partie : sac mélangé puis 14 tuiles distribuées à chaque joueur.
-    /// Le Rummikub se joue de 2 à 4 joueurs.
+    /// Prépare une partie : sac mélangé aléatoirement puis 14 tuiles
+    /// distribuées à chaque joueur. Le Rummikub se joue de 2 à 4 joueurs.
+    /// Pour un mélange déterministe (rejeu à l'identique), voir
+    /// nouvelle_avec_graine.
     pub fn nouvelle(noms: Vec<String>) -> Result<Self, String> {
+        Self::nouvelle_avec_melange(noms, melanger_pioche)
+    }
+
+    /// Comme nouvelle, mais le mélange est déterministe : la même graine donne
+    /// toujours la même distribution. Utile pour rejouer une partie à
+    /// l'identique (IA, tests, réseau).
+    pub fn nouvelle_avec_graine(noms: Vec<String>, graine: u64) -> Result<Self, String> {
+        Self::nouvelle_avec_melange(noms, |pioche| melanger_pioche_avec_graine(pioche, graine))
+    }
+
+    fn nouvelle_avec_melange(
+        noms: Vec<String>,
+        melanger: impl FnOnce(&mut [Tuile]),
+    ) -> Result<Self, String> {
         if !(2..=4).contains(&noms.len()) {
             return Err(format!(
                 "Le jeu se joue de 2 à 4 joueurs (reçu : {}).",
@@ -42,7 +58,7 @@ impl Partie {
         }
 
         let mut pioche = generer_pioche();
-        melanger_pioche(&mut pioche);
+        melanger(&mut pioche);
 
         let mut joueurs = Vec::with_capacity(noms.len());
         for (id, nom) in noms.into_iter().enumerate() {

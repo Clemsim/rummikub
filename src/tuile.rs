@@ -1,3 +1,5 @@
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -72,6 +74,13 @@ pub fn generer_pioche() -> Vec<Tuile> {
 /// Mélange le sac de tuiles aléatoirement
 pub fn melanger_pioche(pioche: &mut [Tuile]) {
     let mut rng = rand::rng();
+    pioche.shuffle(&mut rng);
+}
+
+/// Mélange la pioche de façon déterministe : la même graine produit toujours
+/// le même ordre de tirage (rejeu à l'identique pour l'IA, les tests, le réseau)
+pub fn melanger_pioche_avec_graine(pioche: &mut [Tuile], graine: u64) {
+    let mut rng = StdRng::seed_from_u64(graine);
     pioche.shuffle(&mut rng);
 }
 
