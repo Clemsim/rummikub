@@ -94,6 +94,29 @@ pub fn balayage(
         .collect()
 }
 
+/// Balaye en 2D les couples (epsilon, beta) : chaque couple joue le même
+/// tournoi (mêmes graines) et la fonction retourne la grille à plat
+/// (epsilon, beta, taux de victoire de l'ISMCTS).
+pub fn balayage_2d(
+    epsilons: &[f64],
+    betas: &[f64],
+    nb_graines: u32,
+    fabriquer: impl Fn(f64, f64) -> IsMcts,
+) -> Result<Vec<(f64, f64, f64)>, String> {
+    epsilons
+        .iter()
+        .flat_map(|&epsilon| {
+            betas
+                .iter()
+                .map(|&beta| {
+                    let resultat = tournoi(nb_graines, &fabriquer(epsilon, beta))?;
+                    Ok((epsilon, beta, resultat.taux_ismcts()))
+                })
+                .collect::<Vec<Result<(f64, f64, f64), String>>>()
+        })
+        .collect()
+}
+
 /// Enregistre une ligne de résultats dans le CSV du banc (créé avec son
 /// en-tête au besoin), pour suivre l'évolution des IA au fil des versions.
 /// L'horodatage est en secondes depuis l'epoch (format CSV, sans dépendance).

@@ -28,35 +28,45 @@ d'office.
   d'expansion a changé) — les scores de tournoi ne sont pas comparables à
   ceux des versions antérieures à graine égale.
 
-## Mesures au banc (2026-11-02, 20 graines × 50 simulations, mains tronquées à 6)
+## Mesures au banc (2026-11-02, 20 graines, mains tronquées à 6)
 
-Balayage de β (ε au défaut de 0.2) — `banc/balayage-beta.csv`,
-`banc/graphique-beta.png` :
+> Note d'outillage : le premier balayage de β portait mal le budget — il
+> tournait à 300 simulations (défaut) au lieu des 50 annoncées, et ses
+> chiffres étaient incohérents avec la cartographie 2D. Le bug (les
+> balayages 1D ignoraient l'argument `simulations`) est corrigé ; les
+> chiffres ci-dessous sont les mesures corrigées.
+
+**β à 50 simulations** (ε au défaut) — `banc/balayage-beta.csv` :
 
 | β | 0.1 | 0.2 | 0.3 | 0.5 | 0.7 | 1.0 |
 |---|---|---|---|---|---|---|
-| Victoires | 95% | 95% | 95% | 55% | 15% | **0%** |
+| Victoires | 95% | 95% | 95% | 95% | 60% | 30% |
 
-- **Plateau net à β ≤ 0.3, puis effondrement** : le défaut initial (0.5)
-  était dans la pente, il est corrigé à **0.2** (milieu du plateau).
-- **β = 1.0 (aucun élargissement) perd 20 parties sur 20** : à 50
-  simulations, l'arbre non dosé s'éparpille sur des centaines d'enfants et
-  les décisions deviennent quasi aléatoires. L'élargissement n'est pas une
-  raffinement ici, c'est ce qui rend la recherche jouable.
-- Balayage d'epsilon **re-fait au nouveau β** (`banc/balayage-epsilon.csv`) :
-  courbe plate à 95% sur tout le segment ε ∈ [0, 1] — une fois l'arbre bien
-  concentré, la qualité des rollouts devient secondaire. ε garde son défaut
-  de 0.2 (réglage devenu secondaire).
+**Cartographie 2D ε × β** (42 couples) — `banc/cartographie-epsilon-beta.csv`,
+`banc/cartographie-epsilon-beta.png` : pour β ≤ 0.5, la ligne est **plate à
+95% sur tout le segment ε ∈ [0, 1]** ; β = 0.7 oscille entre 47% et 65% sans
+tendance nette en ε ; β = 1.0 est plat à 30%. La cartographie PNG trace une
+courbe par β.
+
+Conclusions :
+
+- **β est le facteur dominant, ε est secondaire** à ce budget : la carte
+  est plate en ε partout, et ne varie qu'en β.
+- **Le plateau s'étend jusqu'à β = 0.5** à 50 simulations, avec l'effondrement
+  attendu au-delà (β = 1.0, l'arbre non dosé : 30%). Le défaut est fixé à
+  **0.2**, au milieu du plateau [0.1 ; 0.5].
+- Le plafond à ~95% face à l'heuristique est probablement la limite du cadre
+  (mains tronquées : certaines parties sont perdantes quelle que soit la
+  recherche).
+- À budget plus large (plus de simulations), la frontière du plateau se
+  déplacera vraisemblablement vers le haut — re-balayer si le budget change.
 
 ## Conséquences
 
 - Le même budget de simulations se concentre sur les meilleurs coups — et
   la mesure montre que c'est le facteur dominant, devant ε et les rollouts.
-- Les valeurs mesurées dépendent du budget (50 simulations) et du cadre du
-  banc (mains tronquées) : à budget plus large, un β plus grand pourrait
-  redevenir meilleur — re-balayer si le budget change.
 - Le risque documenté (coup génique hors top-k) reste réel aux β faibles :
-  le plateau observé (0.1 aussi bon que 0.3) suggère une marge, mais la
+  le plateau large (0.1 aussi bon que 0.5) suggère une marge, mais la
   frontière exacte se re-valide à chaque changement de budget.
 
 ## Le parti pris de l'ordre d'admission

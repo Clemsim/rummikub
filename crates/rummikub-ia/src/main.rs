@@ -5,6 +5,7 @@
 //! Usages :
 //! - cargo run -p rummikub-ia [graines] [simulations] [epsilon]
 //! - cargo run -p rummikub-ia graphique [graines] [simulations]
+//! - cargo run -p rummikub-ia graphique-2d [graines] [simulations]
 
 use rummikub_ia::graphique;
 use rummikub_ia::ismcts::IsMcts;
@@ -19,6 +20,15 @@ fn main() {
         arguments.remove(0);
         if let Err(err) = mode_graphique(&arguments) {
             eprintln!("Erreur pendant le graphique : {err}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    if arguments.first().map(|argument| argument.as_str()) == Some("graphique-2d") {
+        arguments.remove(0);
+        if let Err(err) = mode_cartographie(&arguments) {
+            eprintln!("Erreur pendant la cartographie 2D : {err}");
             std::process::exit(1);
         }
         return;
@@ -88,6 +98,7 @@ fn mode_graphique(arguments: &[String]) -> Result<(), String> {
     println!("Balayage d'epsilon : {graines} graines, {simulations} simulations par décision...");
     let points_epsilon = tournoi::balayage(&epsilons, graines, |epsilon| IsMcts {
         epsilon_rollout: epsilon,
+        simulations,
         ..Default::default()
     })?;
     afficher_points("epsilon", &points_epsilon);
@@ -106,6 +117,7 @@ fn mode_graphique(arguments: &[String]) -> Result<(), String> {
     );
     let points_beta = tournoi::balayage(&betas, graines, |beta| IsMcts {
         beta_elargissement: beta,
+        simulations,
         ..Default::default()
     })?;
     afficher_points("beta", &points_beta);
@@ -145,4 +157,88 @@ fn ecrire_csv(chemin: &str, entete: &str, points: &[(f64, f64)]) -> Result<(), S
     }
     std::fs::create_dir_all("banc").map_err(|erreur| erreur.to_string())?;
     std::fs::write(chemin, csv).map_err(|erreur| erreur.to_string())
+}
+
+/// Cartographie 2D : les couples (epsilon, beta) croisés, affichés en
+/// matrice, archivés en CSV et tracés en courbes familles (PNG)
+fn mode_cartographie(arguments: &[String]) -> Result<(), String> {
+    let graines: u32 = arguments
+        .first()
+        .and_then(|argument| argument.parse().ok())
+        .unwrap_or(20);
+    let simulations: usize = arguments
+        .get(1)
+        .and_then(|argument| argument.parse().ok())
+        .unwrap_or(50);
+
+    let epsilons = [0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0];
+    let betas = [0.1, 0.2, 0.3, 0.5, 0.7, 1.0];
+    println!(
+        "Cartographie 2D : {} epsilons × {} betas, {graines} graines, {simulations} simulations...",
+        epsilons.len(),
+        betas.len()
+    );
+
+    let grille = tournoi::balayage_2d(&epsilons, &betas, graines, |epsilon, beta| IsMcts {
+        epsilon_rollout: epsilon,
+        beta_elargissement: beta,
+        simulations,
+        ..Default::default()
+    })?;
+
+    // Matrice lisible : une ligne par beta, une colonne par epsilon
+    println!(
+        "{: >8} | {}",
+        "",
+        epsilons
+            .iter()
+            .map(|epsilon| format!("ε={epsilon:<4}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    for beta in &betas {
+        let ligne: Vec<String> = epsilons
+            .iter()
+            .map(|epsilon| {
+                let (_, _, taux) = grille
+                    .iter()
+                    .find(|(e, b, _)| *e == *epsilon && *b == *beta)
+                    .expect("chaque couple est joué");
+                format!("{:.0}%     ", taux * 100.0)
+            })
+            .collect();
+        println!("{: >8} | {}", format!("β={beta}"), ligne.join(" "));
+    }
+
+    let meilleure = grille
+        .iter()
+        .copied()
+        .max_by(|a, b| a.2.total_cmp(&b.2))
+        .expect("la grille n'est pas vide");
+    println!(
+        "Meilleur couple : epsilon {:.1}, beta {:.1} ({:.0}% de victoires)",
+        meilleure.0,
+        meilleure.1,
+        meilleure.2 * 100.0
+    );
+
+    // CSV à plat : epsilon,beta,taux
+    let mut csv = String::from("epsilon,beta,taux_ismcts\n");
+    for (epsilon, beta, taux) in &grille {
+        csv.push_str(&format!("{epsilon},{beta},{taux}\n"));
+    }
+    std::fs::create_dir_all("banc").map_err(|erreur| erreur.to_string())?;
+    std::fs::write("banc/cartographie-epsilon-beta.csv", csv)
+        .map_err(|erreur| erreur.to_string())?;
+
+    graphique::courbes_familles(
+        &epsilons,
+        &betas,
+        &grille,
+        "Taux de victoire de l'ISMCTS : une courbe par beta",
+        "epsilon (probabilité de coup aléatoire en rollout)",
+        "banc/cartographie-epsilon-beta.png",
+    )?;
+    println!("Graphique écrit dans banc/cartographie-epsilon-beta.png");
+    Ok(())
 }
