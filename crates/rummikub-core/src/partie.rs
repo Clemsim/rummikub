@@ -26,6 +26,9 @@ pub struct Partie {
     /// État du tour en cours : un tour ouvert conserve le plateau et la main
     /// du début de tour, pour annuler une manipulation illégale (annuler_tour)
     pub tour: Tour,
+    /// Nombre de tours consécutifs sans la moindre pose — sert à détecter
+    /// la fin de partie par blocage (sac vide)
+    pub tours_sans_pose: usize,
 }
 
 /// Vue d'une partie telle qu'un joueur donné est autorisé à la voir : le
@@ -100,6 +103,7 @@ impl Partie {
             plateau: Plateau::default(),
             pioche,
             tour: Tour::Repos,
+            tours_sans_pose: 0,
         })
     }
 
@@ -294,16 +298,62 @@ impl Partie {
 
     /// Ferme le tour (Tour::Repos) et passe au joueur suivant
     fn fin_de_tour(&mut self) {
+        // Comptabilise les tours sans pose : la détection du blocage (sac
+        // vide) en dépend
+        if !self.a_deja_joue_ce_tour() {
+            self.tours_sans_pose += 1;
+        } else {
+            self.tours_sans_pose = 0;
+        }
+
         self.tour = Tour::Repos;
         self.index_joueur_courant = (self.index_joueur_courant + 1) % self.joueurs.len();
     }
 
-    /// Identifiant du joueur gagnant (main vide), s'il y en a un.
+    /// Identifiant du joueur gagnant, s'il y en a un :
+    /// - main vide : victoire immédiate ;
+    /// - partie bloquée (sac vide et un tour complet sans pose) : la valeur
+    ///   de main la plus faible l'emporte, égalité = partie nulle ;
+    /// - sinon : la partie continue.
     pub fn gagnant(&self) -> Option<usize> {
-        self.joueurs
+        if let Some(joueur) = self.joueurs.iter().find(|joueur| joueur.main.is_empty()) {
+            return Some(joueur.id);
+        }
+        if !self.est_terminee() {
+            return None;
+        }
+
+        let valeurs: Vec<(usize, u32)> = self
+            .joueurs
             .iter()
-            .find(|joueur| joueur.main.is_empty())
-            .map(|joueur| joueur.id)
+            .map(|joueur| {
+                (
+                    joueur.id,
+                    joueur
+                        .main
+                        .iter()
+                        .map(|t| t.valeur_points() as u32)
+                        .sum::<u32>(),
+                )
+            })
+            .collect();
+        let plus_faible = valeurs.iter().map(|(_, valeur)| *valeur).min()?;
+        let gagnants: Vec<usize> = valeurs
+            .iter()
+            .filter(|(_, valeur)| *valeur == plus_faible)
+            .map(|(id, _)| *id)
+            .collect();
+        if gagnants.len() == 1 {
+            gagnants.into_iter().next()
+        } else {
+            None
+        }
+    }
+
+    /// La partie est-elle bloquée : sac vide et un tour complet sans la
+    /// moindre pose ? (règle officielle de fin de partie)
+    pub fn est_terminee(&self) -> bool {
+        self.pioche.is_empty() && self.tours_sans_pose >= self.joueurs.len()
     }
 
     /// Construit la vue de la partie pour le joueur identifié par `id_joueur`.

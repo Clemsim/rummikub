@@ -361,6 +361,83 @@ fn test_une_partie_est_clonable() {
     assert_eq!(copie.joueurs[0].main.len(), 14);
 }
 
+/// Une main sans la moindre combinaison possible : que des paires de deux
+/// couleurs par valeur, et des valeurs espacées de 3 pour éviter les suites.
+fn main_sans_combinaison(ids: &mut u8, valeurs: [u8; 4]) -> Vec<Tuile> {
+    let mut main = Vec::new();
+    for valeur in valeurs {
+        for couleur in [Couleur::Rouge, Couleur::Bleu] {
+            main.push(Tuile::nouvelle_standard(*ids, couleur, valeur));
+            *ids += 1;
+            main.push(Tuile::nouvelle_standard(*ids, couleur, valeur));
+            *ids += 1;
+        }
+    }
+    main
+}
+
+#[test]
+fn test_la_partie_se_termine_par_blocage() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    partie.pioche.clear(); // sac vide
+
+    let mut ids = 0;
+    // Joueur 0 : valeur de main 4 × (1 + 4 + 7 + 10) = 88
+    partie.joueurs[0].main = main_sans_combinaison(&mut ids, [1, 4, 7, 10]);
+    // Joueur 1 : valeur de main 4 × (2 + 5 + 8 + 11) = 104
+    partie.joueurs[1].main = main_sans_combinaison(&mut ids, [2, 5, 8, 11]);
+
+    // Une passe ne suffit pas : la partie n'est pas encore terminée
+    partie.ouvrir_tour();
+    partie.piocher().unwrap();
+    assert!(partie.gagnant().is_none());
+
+    // Après un tour complet sans pose (2 joueurs), le plus faible gagne
+    partie.ouvrir_tour();
+    partie.piocher().unwrap();
+    assert!(partie.est_terminee());
+    assert_eq!(partie.gagnant(), Some(0));
+}
+
+#[test]
+fn test_le_blocage_avec_egalite_donne_une_partie_nulle() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    partie.pioche.clear();
+
+    let mut ids = 0;
+    partie.joueurs[0].main = main_sans_combinaison(&mut ids, [1, 4, 7, 10]); // 88 points
+    partie.joueurs[1].main = main_sans_combinaison(&mut ids, [1, 4, 7, 10]); // 88 points aussi
+
+    partie.ouvrir_tour();
+    partie.piocher().unwrap();
+    partie.ouvrir_tour();
+    partie.piocher().unwrap();
+
+    assert!(partie.est_terminee());
+    assert_eq!(partie.gagnant(), None); // égalité : partie nulle
+}
+
+#[test]
+fn test_la_main_vide_bat_le_blocage() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    partie.pioche.clear();
+
+    let mut ids = 0;
+    partie.joueurs[0].main = main_sans_combinaison(&mut ids, [1, 4, 7, 10]); // 88 points
+    partie.joueurs[1].main = vec![]; // main vide : victoire immédiate
+
+    partie.ouvrir_tour();
+    partie.piocher().unwrap();
+    partie.ouvrir_tour();
+    partie.piocher().unwrap();
+
+    // Même en situation de blocage, la main vide reste la victoire prioritaire
+    assert_eq!(partie.gagnant(), Some(1));
+}
+
 #[test]
 fn test_meme_graine_meme_distribution() {
     let noms = vec!["Alice".to_string(), "Bob".to_string()];
