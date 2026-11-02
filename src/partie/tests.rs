@@ -238,8 +238,7 @@ fn test_draw_tile_ends_the_turn() {
 
     // Piocher met fin au tour : passage au joueur suivant
     assert_eq!(partie.index_joueur_courant, 1);
-    assert!(partie.plateau_sauvegarde.is_none());
-    assert!(partie.main_sauvegarde.is_none());
+    assert_eq!(partie.tour, Tour::Repos);
 
     // Tour terminé : repiocher est refusé
     assert!(partie.draw_tile().is_err());
@@ -333,8 +332,7 @@ fn test_end_turn_cancels_on_invalid_board() {
     assert!(partie.plateau.combinaisons.is_empty());
     assert_eq!(partie.joueurs[0].main, main_avant);
     assert_eq!(partie.index_joueur_courant, 0);
-    assert!(partie.plateau_sauvegarde.is_none());
-    assert!(partie.main_sauvegarde.is_none());
+    assert_eq!(partie.tour, Tour::Repos);
 }
 
 #[test]

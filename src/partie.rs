@@ -4,14 +4,27 @@ use crate::plateau::Plateau;
 use crate::tuile::{Tuile, generate_pool, shuffle_pool};
 use std::collections::HashSet;
 
+/// État du tour en cours dans la partie
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Tour {
+    /// Aucun tour ouvert : le joueur courant doit ouvrir son tour (start_turn)
+    Repos,
+    /// Tour ouvert : l'état du plateau et la main du joueur courant au début
+    /// du tour sont conservés pour permettre une annulation (cancel_turn)
+    Ouvert {
+        plateau_debut: Plateau,
+        main_debut: Vec<Tuile>,
+    },
+}
+
 pub struct Partie {
     pub joueurs: Vec<Joueur>,
     pub index_joueur_courant: usize,
     pub plateau: Plateau,
     pub pioche: Vec<Tuile>, // Pioche
-    // Utile pour annuler le tour si le joueur fait une manipulation illégale :
-    pub plateau_sauvegarde: Option<Plateau>,
-    pub main_sauvegarde: Option<Vec<Tuile>>,
+    /// État du tour en cours : un tour ouvert conserve le plateau et la main
+    /// du début de tour, pour annuler une manipulation illégale (cancel_turn)
+    pub tour: Tour,
 }
 
 impl Partie {
@@ -42,8 +55,7 @@ impl Partie {
             index_joueur_courant: 0,
             plateau: Plateau::default(),
             pioche,
-            plateau_sauvegarde: None,
-            main_sauvegarde: None,
+            tour: Tour::Repos,
         })
     }
 
@@ -62,7 +74,7 @@ impl Partie {
     /// Erreur si aucun tour n'est ouvert (start_turn) ou si le joueur a déjà
     /// posé ou manipulé pendant ce tour.
     pub fn draw_tile(&mut self) -> Result<Option<Tuile>, String> {
-        if self.plateau_sauvegarde.is_none() {
+        if !self.tour_ouvert() {
             return Err(
                 "Aucun tour en cours : appelez start_turn pour ouvrir un tour.".to_string(),
             );
@@ -85,17 +97,22 @@ impl Partie {
     /// Ouvre le tour du joueur courant : le plateau et sa main sont sauvegardés
     /// pour permettre d'annuler le tour (cancel_turn).
     pub fn start_turn(&mut self) {
-        self.plateau_sauvegarde = Some(self.plateau.clone());
-        self.main_sauvegarde = Some(self.joueur_courant().main.clone());
+        self.tour = Tour::Ouvert {
+            plateau_debut: self.plateau.clone(),
+            main_debut: self.joueur_courant().main.clone(),
+        };
     }
 
-    /// Annule le tour en cours : restaure le plateau et la main du début de tour.
+    /// Annule le tour en cours : restaure le plateau et la main du début de
+    /// tour. Sans tour ouvert, l'appel ne fait rien.
     pub fn cancel_turn(&mut self) {
-        if let Some(plateau) = self.plateau_sauvegarde.take() {
-            self.plateau = plateau;
-        }
-        if let Some(main) = self.main_sauvegarde.take() {
-            self.joueur_courant_mut().main = main;
+        if let Tour::Ouvert {
+            plateau_debut,
+            main_debut,
+        } = std::mem::replace(&mut self.tour, Tour::Repos)
+        {
+            self.plateau = plateau_debut;
+            self.joueur_courant_mut().main = main_debut;
         }
     }
 
@@ -103,7 +120,7 @@ impl Partie {
     /// sa main. Avant la pose initiale, l'exigence des 30 points s'applique
     /// automatiquement.
     pub fn play_melds(&mut self, proposed_melds: Vec<Combinaison>) -> Result<u32, String> {
-        if self.plateau_sauvegarde.is_none() {
+        if !self.tour_ouvert() {
             return Err(
                 "Aucun tour en cours : appelez start_turn pour ouvrir un tour.".to_string(),
             );
@@ -132,7 +149,7 @@ impl Partie {
     /// - chaque nouvelle tuile provient de la main du joueur ;
     /// - aucune tuile n'est utilisée deux fois.
     pub fn submit_board(&mut self, combinaisons: Vec<Combinaison>) -> Result<(), String> {
-        if self.plateau_sauvegarde.is_none() {
+        if !self.tour_ouvert() {
             return Err(
                 "Aucun tour en cours : appelez start_turn pour ouvrir un tour.".to_string(),
             );
@@ -199,7 +216,7 @@ impl Partie {
     /// - le joueur n'a rien joué alors que le sac contient encore des tuiles :
     ///   il doit jouer ou piocher, la passe n'étant permise qu'à sac vide.
     pub fn end_turn(&mut self) -> Result<(), String> {
-        if self.plateau_sauvegarde.is_none() {
+        if !self.tour_ouvert() {
             return Err(
                 "Aucun tour en cours : appelez start_turn pour ouvrir un tour.".to_string(),
             );
@@ -216,18 +233,22 @@ impl Partie {
         Ok(())
     }
 
+    /// Un tour est-il actuellement ouvert ?
+    fn tour_ouvert(&self) -> bool {
+        matches!(self.tour, Tour::Ouvert { .. })
+    }
+
     /// Le joueur a-t-il déjà posé ou manipulé pendant le tour en cours ?
     fn a_deja_joue_ce_tour(&self) -> bool {
-        match &self.plateau_sauvegarde {
-            Some(debut_de_tour) => *debut_de_tour != self.plateau,
-            None => false,
+        match &self.tour {
+            Tour::Ouvert { plateau_debut, .. } => *plateau_debut != self.plateau,
+            Tour::Repos => false,
         }
     }
 
-    /// Nettoie les sauvegardes et passe au joueur suivant
+    /// Ferme le tour (Tour::Repos) et passe au joueur suivant
     fn fin_de_tour(&mut self) {
-        self.plateau_sauvegarde = None;
-        self.main_sauvegarde = None;
+        self.tour = Tour::Repos;
         self.index_joueur_courant = (self.index_joueur_courant + 1) % self.joueurs.len();
     }
 
