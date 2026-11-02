@@ -1,4 +1,3 @@
-use rand::Rng;
 use rand::seq::SliceRandom;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -18,7 +17,7 @@ pub enum TuileType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Tuile {
     pub id: u8, // Identifiant unique (0..106)
-    pub kind: TuileType,
+    pub Type: TuileType,
 }
 
 impl Tuile {
@@ -29,19 +28,19 @@ impl Tuile {
         );
         Self {
             id,
-            kind: TuileType::Standard { color, value },
+            Type: TuileType::Standard { color, value },
         }
     }
 
     pub fn new_joker(id: u8) -> Self {
         Self {
             id,
-            kind: TuileType::Joker,
+            Type: TuileType::Joker,
         }
     }
 
     pub fn is_joker(&self) -> bool {
-        matches!(self.kind, TuileType::Joker)
+        matches!(self.Type, TuileType::Joker)
     }
 }
 
@@ -72,6 +71,6 @@ pub fn generate_pool() -> Vec<Tuile> {
 
 /// Mélange le sac de tuiles aléatoirement
 pub fn shuffle_pool(pool: &mut [Tuile]) {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     pool.shuffle(&mut rng);
 }

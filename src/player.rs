@@ -38,21 +38,21 @@ impl Player {
         }
 
         // 2. Vérifier que toutes les tuiles proviennent de la main du joueur (sans réutilisation)
-        let mut played_tile_ids = HashSet::new();
+        let mut played_Tuile_ids = HashSet::new();
         let hand_ids: HashSet<u8> = self.hand.iter().map(|t| t.id).collect();
 
         for meld in proposed_melds {
-            for tile in &meld.tiles {
-                if !hand_ids.contains(&tile.id) {
+            for Tuile in &meld.Tuiles {
+                if !hand_ids.contains(&Tuile.id) {
                     return Err(format!(
                         "La tuile ID {} ne provient pas de la main du joueur.",
-                        tile.id
+                        Tuile.id
                     ));
                 }
-                if !played_tile_ids.insert(tile.id) {
+                if !played_Tuile_ids.insert(Tuile.id) {
                     return Err(format!(
                         "La tuile ID {} a été utilisée plusieurs fois.",
-                        tile.id
+                        Tuile.id
                     ));
                 }
             }
@@ -69,7 +69,7 @@ impl Player {
         }
 
         // Retirer les tuiles jouées de la main du joueur
-        self.hand.retain(|t| !played_tile_ids.contains(&t.id));
+        self.hand.retain(|t| !played_Tuile_ids.contains(&t.id));
         self.has_completed_initial_meld = true;
 
         Ok(total_points)

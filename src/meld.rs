@@ -3,16 +3,16 @@ use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Meld {
-    pub tiles: Vec<Tuile>,
+    pub Tuiles: Vec<Tuile>,
 }
 
 impl Meld {
-    pub fn new(tiles: Vec<Tuile>) -> Self {
-        Self { tiles }
+    pub fn new(Tuiles: Vec<Tuile>) -> Self {
+        Self { Tuiles }
     }
 
     pub fn is_valid(&self) -> bool {
-        if self.tiles.len() < 3 {
+        if self.Tuiles.len() < 3 {
             return false;
         }
         self.is_valid_group() || self.is_valid_run()
@@ -20,7 +20,7 @@ impl Meld {
 
     /// Validation d'un groupe (3 ou 4 tuiles de même valeur et de couleurs différentes)
     pub fn is_valid_group(&self) -> bool {
-        let len = self.tiles.len();
+        let len = self.Tuiles.len();
         if !(3..=4).contains(&len) {
             return false;
         }
@@ -28,8 +28,8 @@ impl Meld {
         let mut group_val: Option<u8> = None;
         let mut colors_seen = HashSet::new();
 
-        for tile in &self.tiles {
-            match tile.kind {
+        for Tuile in &self.Tuiles {
+            match Tuile.Type {
                 TuileType::Standard { color, value } => {
                     // Toutes les tuiles standard doivent avoir la même valeur
                     if let Some(expected_val) = group_val {
@@ -61,18 +61,18 @@ impl Meld {
     /// Analyse la suite et retourne (start_value_min, start_value_max) si la suite est valide.
     /// Une suite de longueur L démarrant à `S` couvrira [S ..= S + L - 1].
     fn resolve_run_range(&self) -> Option<(u8, u8)> {
-        let len = self.tiles.len();
+        let len = self.Tuiles.len();
         // Une suite ne peut pas dépasser 13 tuiles (1 à 13)
         if !(3..=13).contains(&len) {
-            return false.then_some((0, 0))?;
+            return None;
         }
 
         let mut jokers_count: usize = 0;
         let mut standard_values = Vec::new();
         let mut run_color: Option<Color> = None;
 
-        for tile in &self.tiles {
-            match tile.kind {
+        for Tuile in &self.Tuiles {
+            match Tuile.Type {
                 TuileType::Joker => jokers_count += 1,
                 TuileType::Standard { color, value } => {
                     if let Some(expected_color) = run_color {
@@ -144,19 +144,19 @@ impl Meld {
         if self.is_valid_group() {
             // Dans un groupe, chaque joker prend la valeur de la tuile du groupe
             let standard_val = self
-                .tiles
+                .Tuiles
                 .iter()
-                .find_map(|t| match t.kind {
+                .find_map(|t| match t.Type {
                     TuileType::Standard { value, .. } => Some(value),
                     _ => None,
                 })
                 .unwrap_or(0);
-            return (standard_val as u32) * (self.tiles.len() as u32);
+            return (standard_val as u32) * (self.Tuiles.len() as u32);
         }
 
         if let Some((_, max_s)) = self.resolve_run_range() {
             // Choix du début de séquence qui maximise les points (le plus grand S possible)
-            let len = self.tiles.len() as u32;
+            let len = self.Tuiles.len() as u32;
             let start = max_s as u32;
             let end = start + len - 1;
             return len * (start + end) / 2;
