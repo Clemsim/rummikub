@@ -1,3 +1,7 @@
+// Naming français délibéré (Tuile, Tuiles, Type...) : le lint non_snake_case
+// est désactivé pour tout le projet, ne pas renommer en anglais.
+#![allow(non_snake_case)]
+
 mod meld;
 mod player;
 mod tuile;
