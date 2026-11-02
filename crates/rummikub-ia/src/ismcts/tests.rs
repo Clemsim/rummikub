@@ -21,7 +21,7 @@ fn test_la_determinisation_est_coherente_et_reproductible() {
         .flat_map(|joueur| joueur.main.iter().map(|t| t.id))
         .collect();
     ids.extend(vue.pioche.iter().map(|t| t.id));
-    ids.extend(vue.plateau.ids_tuiles());
+    ids.extend(vue.plateau.ids_tuiles().ids());
     assert_eq!(ids.len(), 106);
 
     // Même graine → même devinette

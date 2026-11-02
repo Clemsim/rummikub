@@ -35,8 +35,14 @@ use rand::{RngExt, SeedableRng};
 use rayon::prelude::*;
 use rummikub_core::coups::{Coup, coups_possibles, jouer_coup};
 use rummikub_core::partie::{Partie, Tour};
-use rummikub_core::tuile::{Tuile, generer_pioche};
-use std::collections::HashSet;
+use rummikub_core::tuile::{BitsetTuiles, Tuile, generer_pioche};
+
+/// En dessous de ce nombre de simulations par thread, la coordination de
+/// rayon finirait par coûter plus que le travail (ADR 0005). Valeur basse :
+/// la mesure a montré que la parallélisation reste rentable même à 6
+/// simulations par thread (50 simulations : 1,3 s parallèle contre 6,6 s
+/// séquentiel).
+const SIMULATIONS_MIN_PAR_THREAD: usize = 4;
 
 /// Réglages de la recherche. La décision est reproductible : même état +
 /// même graine + même nombre de threads → même coup choisi.
@@ -85,9 +91,11 @@ impl IsMcts {
         // Parallélisation à la racine : chaque thread construit son propre
         // arbre avec sa graine dérivée, puis les statistiques sont fusionnées
         let threads = if self.threads == 0 {
-            std::thread::available_parallelism()
+            // Ne paralléliser que si chaque thread aurait assez à faire
+            let coeurs = std::thread::available_parallelism()
                 .map(|n| n.get())
-                .unwrap_or(1)
+                .unwrap_or(1);
+            (coeurs.min(self.simulations / SIMULATIONS_MIN_PAR_THREAD)).max(1)
         } else {
             self.threads
         };
@@ -190,20 +198,20 @@ fn determiniser(partie: &Partie, rng: &mut StdRng) -> Partie {
     // Tuiles connues : notre main et le plateau. Le sac est toujours le même
     // et l'identifiant détermine le type d'une tuile : on repart donc du sac
     // complet et on retire les tuiles connues pour obtenir l'ensemble caché.
-    let mut connues: HashSet<u8> = etat
-        .joueurs
-        .iter()
-        .find(|joueur| joueur.id == id_vue)
-        .expect("le joueur courant existe")
-        .main
-        .iter()
-        .map(|tuile| tuile.id)
-        .collect();
-    connues.extend(etat.plateau.ids_tuiles());
+    let mut connues = BitsetTuiles::depuis_ids(
+        etat.joueurs
+            .iter()
+            .find(|joueur| joueur.id == id_vue)
+            .expect("le joueur courant existe")
+            .main
+            .iter()
+            .map(|tuile| tuile.id),
+    );
+    connues.inserer_tout(&etat.plateau.ids_tuiles());
 
     let mut cachees: Vec<Tuile> = generer_pioche()
         .into_iter()
-        .filter(|tuile| !connues.contains(&tuile.id))
+        .filter(|tuile| !connues.contient(tuile.id))
         .collect();
     cachees.shuffle(rng);
 
@@ -277,12 +285,12 @@ fn descente(
     }
 
     // Expansion : développer un coup légal pas encore présent dans l'arbre
-    let non_developpes: Vec<Coup> = coups
+    let mut non_developpes: Vec<Coup> = coups
         .iter()
         .filter(|coup| !noeud.possede(coup))
         .cloned()
         .collect();
-    let coup = non_developpes[rng.random_range(0..non_developpes.len())].clone();
+    let coup = non_developpes.swap_remove(rng.random_range(0..non_developpes.len()));
 
     let joueur = etat.index_joueur_courant;
     jouer_coup(etat, coup.clone())?;
@@ -312,10 +320,12 @@ fn deroulement(etat: &mut Partie, rng: &mut StdRng, params: &IsMcts) -> Result<V
             break;
         }
         ouvrir_si_necessaire(etat);
-        let coups = coups_possibles(etat)?;
+        let mut coups = coups_possibles(etat)?;
 
         let coup = if rng.random::<f64>() < params.epsilon_rollout {
-            coups[rng.random_range(0..coups.len())].clone()
+            // swap_remove : la liste est jetable, on consomme le coup au lieu
+            // de le cloner
+            coups.swap_remove(rng.random_range(0..coups.len()))
         } else {
             coup_heuristique(&coups)
         };
