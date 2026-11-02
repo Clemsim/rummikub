@@ -1,4 +1,6 @@
-use super::*;
+use crate::combinaison::Combinaison;
+use crate::joueur::Joueur;
+use crate::tuile::{Couleur, Tuile};
 
 #[test]
 fn test_valid_runs_with_jokers() {

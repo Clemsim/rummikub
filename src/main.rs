@@ -1,17 +1,10 @@
-// Naming français délibéré (Tuile, Tuiles, Type...) : le lint non_snake_case
-// est désactivé pour tout le projet, ne pas renommer en anglais.
-#![allow(non_snake_case)]
-
-mod combinaison;
-mod joueur;
-mod partie;
-mod plateau;
-mod tuile;
-
-use combinaison::Combinaison;
-use joueur::Joueur;
-use partie::Partie;
-use tuile::{Couleur, Tuile, generer_pioche, melanger_pioche};
+// Démo du moteur de jeu : la logique vit dans la bibliothèque (src/lib.rs).
+use rummikub::{
+    combinaison::Combinaison,
+    joueur::Joueur,
+    partie::Partie,
+    tuile::{Couleur, Tuile, generer_pioche, melanger_pioche},
+};
 
 fn main() {
     // 1. Génération & Mélange de la pioche
@@ -107,6 +100,3 @@ fn main() {
         None => println!("Pas encore de gagnant."),
     }
 }
-
-#[cfg(test)]
-mod tests;
