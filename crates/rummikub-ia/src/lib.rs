@@ -8,3 +8,4 @@
 
 pub mod bot_heuristique;
 pub mod ismcts;
+pub mod tournoi;
