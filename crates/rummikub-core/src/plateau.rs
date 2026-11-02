@@ -1,5 +1,5 @@
 use crate::combinaison::Combinaison;
-use std::collections::HashSet;
+use crate::tuile::BitsetTuiles;
 
 /// Plateau de jeu : l'ensemble des combinaisons posées.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -19,7 +19,7 @@ impl Plateau {
     }
 
     /// Identifiants de toutes les tuiles posées sur le plateau
-    pub fn ids_tuiles(&self) -> HashSet<u8> {
+    pub fn ids_tuiles(&self) -> BitsetTuiles {
         self.combinaisons
             .iter()
             .flat_map(|combinaison| combinaison.Tuiles.iter().map(|tuile| tuile.id))

@@ -1,6 +1,5 @@
 use crate::combinaison::Combinaison;
-use crate::tuile::Tuile;
-use std::collections::HashSet;
+use crate::tuile::{BitsetTuiles, Tuile};
 
 #[derive(Debug, Clone)]
 pub struct Joueur {
@@ -27,7 +26,7 @@ impl Joueur {
     fn verifier_proposition(
         &self,
         proposed_melds: &[Combinaison],
-    ) -> Result<(u32, HashSet<u8>), String> {
+    ) -> Result<(u32, BitsetTuiles), String> {
         if proposed_melds.is_empty() {
             return Err("Aucune combinaison proposée.".to_string());
         }
@@ -40,18 +39,18 @@ impl Joueur {
         }
 
         // 2. Vérifier que toutes les tuiles proviennent de la main du joueur (sans réutilisation)
-        let mut played_Tuile_ids = HashSet::new();
-        let ids_main: HashSet<u8> = self.main.iter().map(|t| t.id).collect();
+        let mut played_Tuile_ids = BitsetTuiles::default();
+        let ids_main = BitsetTuiles::depuis_ids(self.main.iter().map(|t| t.id));
 
         for combinaison in proposed_melds {
             for Tuile in &combinaison.Tuiles {
-                if !ids_main.contains(&Tuile.id) {
+                if !ids_main.contient(Tuile.id) {
                     return Err(format!(
                         "La tuile ID {} ne provient pas de la main du joueur.",
                         Tuile.id
                     ));
                 }
-                if !played_Tuile_ids.insert(Tuile.id) {
+                if !played_Tuile_ids.inserer_si_absent(Tuile.id) {
                     return Err(format!(
                         "La tuile ID {} a été utilisée plusieurs fois.",
                         Tuile.id
@@ -98,8 +97,8 @@ impl Joueur {
     }
 
     /// Retire de la main les tuiles identifiées
-    fn retirer_tuiles_jouees(&mut self, played_Tuile_ids: &HashSet<u8>) {
-        self.main.retain(|t| !played_Tuile_ids.contains(&t.id));
+    fn retirer_tuiles_jouees(&mut self, played_Tuile_ids: &BitsetTuiles) {
+        self.main.retain(|t| !played_Tuile_ids.contient(t.id));
     }
 }
 

@@ -9,7 +9,7 @@ fn standard(id: u8, couleur: Couleur, valeur: u8) -> Tuile {
 fn test_empty_board_is_valid() {
     let plateau = Plateau::default();
     assert!(plateau.est_valide());
-    assert!(plateau.ids_tuiles().is_empty());
+    assert!(plateau.ids_tuiles().est_vide());
 }
 
 #[test]
@@ -45,8 +45,8 @@ fn test_tile_ids_and_replacement() {
     ]));
 
     let ids = plateau.ids_tuiles();
-    assert_eq!(ids.len(), 6);
-    assert!(ids.contains(&1) && ids.contains(&6));
+    assert_eq!(ids.ids().count(), 6);
+    assert!(ids.contient(1) && ids.contient(6));
 
     // remplacer_combinaisons remplace tout l'état du plateau
     plateau.remplacer_combinaisons(vec![Combinaison::nouvelle(vec![
@@ -54,5 +54,8 @@ fn test_tile_ids_and_replacement() {
         standard(8, Couleur::Rouge, 3),
         standard(9, Couleur::Rouge, 4),
     ])]);
-    assert_eq!(plateau.ids_tuiles(), HashSet::from([7, 8, 9]));
+    assert_eq!(
+        plateau.ids_tuiles().ids().collect::<Vec<u8>>(),
+        vec![7, 8, 9]
+    );
 }

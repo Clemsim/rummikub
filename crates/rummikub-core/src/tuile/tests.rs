@@ -49,3 +49,39 @@ fn test_shuffle_pool_keeps_all_tiles() {
     after.sort_unstable();
     assert_eq!(before, after);
 }
+
+#[test]
+fn test_le_bitset_gere_les_identifiants() {
+    let mut ensemble = BitsetTuiles::default();
+    assert!(ensemble.est_vide());
+
+    ensemble.inserer(0);
+    ensemble.inserer(105);
+    assert!(ensemble.contient(0) && ensemble.contient(105));
+    assert!(!ensemble.contient(1));
+    assert!(!ensemble.est_vide());
+
+    // Retrait conditionnel
+    assert!(ensemble.retirer_si_present(0));
+    assert!(!ensemble.retirer_si_present(0));
+    assert!(!ensemble.contient(0));
+
+    // Disjonction
+    let mut autre = BitsetTuiles::default();
+    autre.inserer(105);
+    assert!(!ensemble.disjoint(&autre));
+    autre.retirer(105);
+    assert!(ensemble.disjoint(&autre));
+
+    // Construction depuis des ids, avec déduplication, ordre croissant
+    let construit = BitsetTuiles::depuis_ids([105, 105, 0]);
+    assert_eq!(construit.ids().collect::<Vec<u8>>(), vec![0, 105]);
+
+    // Tout le sac tient dedans
+    assert_eq!(
+        BitsetTuiles::depuis_ids(generer_pioche().iter().map(|t| t.id))
+            .ids()
+            .count(),
+        106
+    );
+}

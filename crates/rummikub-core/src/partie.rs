@@ -1,8 +1,9 @@
 use crate::combinaison::Combinaison;
 use crate::joueur::Joueur;
 use crate::plateau::Plateau;
-use crate::tuile::{Tuile, generer_pioche, melanger_pioche, melanger_pioche_avec_graine};
-use std::collections::HashSet;
+use crate::tuile::{
+    BitsetTuiles, Tuile, generer_pioche, melanger_pioche, melanger_pioche_avec_graine,
+};
 
 /// État du tour en cours dans la partie
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -213,28 +214,24 @@ impl Partie {
         }
 
         let mut ids_plateau = self.plateau.ids_tuiles();
-        let mut ids_main: HashSet<u8> = self
-            .joueur_courant()
-            .main
-            .iter()
-            .map(|tuile| tuile.id)
-            .collect();
-        let mut ids_deja_vus: HashSet<u8> = HashSet::new();
+        let mut ids_main =
+            BitsetTuiles::depuis_ids(self.joueur_courant().main.iter().map(|tuile| tuile.id));
+        let mut ids_deja_vus = BitsetTuiles::default();
 
         for combinaison in &combinaisons {
             for tuile in &combinaison.Tuiles {
-                if !ids_deja_vus.insert(tuile.id) {
+                if !ids_deja_vus.inserer_si_absent(tuile.id) {
                     return Err(format!(
                         "La tuile ID {} apparaît deux fois sur le plateau.",
                         tuile.id
                     ));
                 }
                 // La tuile était-elle déjà posée sur le plateau ?
-                if ids_plateau.remove(&tuile.id) {
+                if ids_plateau.retirer_si_present(tuile.id) {
                     continue;
                 }
                 // Sinon, elle doit venir de la main du joueur
-                if !ids_main.remove(&tuile.id) {
+                if !ids_main.retirer_si_present(tuile.id) {
                     return Err(format!(
                         "La tuile ID {} ne provient ni du plateau ni de la main du joueur.",
                         tuile.id
@@ -243,7 +240,7 @@ impl Partie {
             }
         }
 
-        if !ids_plateau.is_empty() {
+        if !ids_plateau.est_vide() {
             return Err("Des tuiles du plateau ont disparu : manipulation interdite.".to_string());
         }
 
@@ -252,7 +249,7 @@ impl Partie {
         self.plateau.remplacer_combinaisons(combinaisons);
         self.joueur_courant_mut()
             .main
-            .retain(|tuile| ids_main.contains(&tuile.id));
+            .retain(|tuile| ids_main.contient(tuile.id));
         Ok(())
     }
 
