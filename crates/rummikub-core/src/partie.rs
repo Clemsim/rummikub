@@ -44,6 +44,8 @@ pub struct VuePartie {
     /// Le contenu de la pioche reste secret, seul son nombre est public
     pub taille_pioche: usize,
     pub gagnant: Option<usize>,
+    /// Tours consécutifs sans pose : la proximité du blocage est publique
+    pub tours_sans_pose: usize,
     pub joueurs: Vec<VueJoueur>,
 }
 
@@ -382,6 +384,7 @@ impl Partie {
             plateau: self.plateau.clone(),
             taille_pioche: self.pioche.len(),
             gagnant: self.gagnant(),
+            tours_sans_pose: self.tours_sans_pose,
             joueurs,
         })
     }
