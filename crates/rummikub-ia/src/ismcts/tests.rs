@@ -46,6 +46,7 @@ fn test_ismcts_pose_pour_gagner() {
     let bot = IsMcts {
         simulations: 300,
         profondeur_rollout: 30,
+        threads: 1,
         ..Default::default()
     };
     let coup = bot
@@ -72,6 +73,7 @@ fn test_ismcts_est_reproductible() {
 
     let bot = IsMcts {
         simulations: 100,
+        threads: 1,
         graine: 5,
         ..Default::default()
     };
@@ -79,4 +81,22 @@ fn test_ismcts_est_reproductible() {
         bot.choisir_coup(&partie).unwrap(),
         bot.choisir_coup(&partie).unwrap()
     );
+}
+
+#[test]
+fn test_les_recompenses_suivent_le_score_officiel() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    // Le joueur 0 a la main vide (gagnant), le joueur 1 un 7 et un joker :
+    // 7 + 30 = 37 points de pénalité
+    partie.joueurs[0].main.clear();
+    partie.joueurs[1].main = vec![standard(1, Couleur::Rouge, 7), Tuile::nouveau_joker(99)];
+
+    let recompenses = recompenses_finales(&partie);
+    assert!((recompenses[0] - 1.37).abs() < 1e-9);
+    assert!((recompenses[1] + 0.37).abs() < 1e-9);
+
+    // Sans gagnant (profondeur max atteinte) : 0 pour tous
+    partie.joueurs[0].main = vec![standard(2, Couleur::Bleu, 3)];
+    assert_eq!(recompenses_finales(&partie), vec![0.0, 0.0]);
 }

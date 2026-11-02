@@ -19,32 +19,41 @@
 //! partie au hasard (rollout) → propager les récompenses dans les nœuds
 //! traversés.
 //!
-//! Simplifications assumées de cette première version :
+//! Simplifications assumées de cette version (détails dans l'ADR 0003) :
 //! - une seule déterminisation par simulation, du point de vue du joueur qui
 //!   décide ;
-//! - rollouts purement aléatoires (une politique heuristique les améliorerait
-//!   nettement) ;
-//! - récompenses : 1 pour le gagnant, 0 pour les autres, 0 pour tous si la
-//!   profondeur maximale de rollout est atteinte sans gagnant.
+//! - rollouts ε-greedy : le coup heuristique avec probabilité 1−ε, un coup
+//!   au hasard sinon ;
+//! - récompenses selon le score officiel en fin de partie (victoire + valeur
+//!   des mains adverses), 0 pour tous si la profondeur maximale est atteinte
+//!   sans gagnant ;
+//! - parallélisation à la racine : un arbre par thread, fusionnés à la fin.
 
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::{RngExt, SeedableRng};
+use rayon::prelude::*;
 use rummikub_core::coups::{Coup, coups_possibles, jouer_coup};
 use rummikub_core::partie::{Partie, Tour};
 use rummikub_core::tuile::{Tuile, generer_pioche};
 use std::collections::HashSet;
 
-/// Réglages de la recherche. La graine rend la décision reproductible :
-/// même état + même graine → même coup choisi.
+/// Réglages de la recherche. La décision est reproductible : même état +
+/// même graine + même nombre de threads → même coup choisi.
 #[derive(Debug, Clone)]
 pub struct IsMcts {
     /// Nombre de simulations : une déterminisation et une descente chacune
     pub simulations: usize,
-    /// Profondeur maximale d'un rollout aléatoire
+    /// Profondeur maximale d'un rollout
     pub profondeur_rollout: usize,
     /// Constante d'exploration UCB (sqrt(2) est le choix classique)
     pub exploration: f64,
+    /// Pendant un rollout : probabilité de jouer un coup au hasard (le coup
+    /// heuristique est joué avec probabilité 1−ε). 1.0 = rollouts aléatoires,
+    /// 0.0 = rollouts entièrement heuristiques
+    pub epsilon_rollout: f64,
+    /// Nombre de threads pour la parallélisation à la racine ; 0 = auto
+    pub threads: usize,
     /// Graine du générateur aléatoire
     pub graine: u64,
 }
@@ -55,6 +64,8 @@ impl Default for IsMcts {
             simulations: 300,
             profondeur_rollout: 30,
             exploration: std::f64::consts::SQRT_2,
+            epsilon_rollout: 0.2,
+            threads: 0,
             graine: 0,
         }
     }
@@ -71,14 +82,37 @@ impl IsMcts {
             );
         }
 
-        let mut rng = StdRng::seed_from_u64(self.graine);
-        let mut racine = Noeud::default();
+        // Parallélisation à la racine : chaque thread construit son propre
+        // arbre avec sa graine dérivée, puis les statistiques sont fusionnées
+        let threads = if self.threads == 0 {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1)
+        } else {
+            self.threads
+        };
+        let par_thread = self.simulations / threads;
+        let reste = self.simulations % threads;
 
-        for _ in 0..self.simulations {
-            // 1. Déterminisation : une devinette cohérente des infos cachées
-            let mut etat = determiniser(partie, &mut rng);
-            // 2. Descente + expansion + rollout + propagation, sur cet état-là
-            descente(&mut racine, &mut etat, &mut rng, self)?;
+        let branches: Vec<Noeud> = (0..threads)
+            .into_par_iter()
+            .map(|index| {
+                let simulations = par_thread + usize::from(index < reste);
+                let mut rng = StdRng::seed_from_u64(self.graine.wrapping_add(index as u64));
+                let mut racine = Noeud::default();
+                for _ in 0..simulations {
+                    // 1. Déterminisation : une devinette cohérente des infos cachées
+                    let mut etat = determiniser(partie, &mut rng);
+                    // 2. Descente + expansion + rollout + propagation, sur cet état-là
+                    descente(&mut racine, &mut etat, &mut rng, self)?;
+                }
+                Ok(racine)
+            })
+            .collect::<Result<Vec<Noeud>, String>>()?;
+
+        let mut racine = Noeud::default();
+        for branche in branches {
+            racine.fusionner(branche);
         }
 
         Ok(racine
@@ -123,6 +157,18 @@ impl Noeud {
     /// Le coup a-t-il déjà un enfant dans l'arbre ?
     fn possede(&self, coup: &Coup) -> bool {
         self.enfants.iter().any(|enfant| &enfant.coup == coup)
+    }
+
+    /// Fusionne les statistiques d'un autre arbre (parallélisation à la racine)
+    fn fusionner(&mut self, autre: Noeud) {
+        self.visites += autre.visites;
+        self.somme += autre.somme;
+        for enfant in autre.enfants {
+            match self.enfants.iter_mut().find(|e| e.coup == enfant.coup) {
+                Some(existant) => existant.noeud.fusionner(*enfant.noeud),
+                None => self.enfants.push(enfant),
+            }
+        }
     }
 }
 
@@ -187,11 +233,9 @@ fn descente(
 ) -> Result<Vec<f64>, String> {
     noeud.visites += 1;
 
-    // Partie finie : la récompense de chacun est fixée
-    let mut recompenses = vec![0.0; etat.joueurs.len()];
-    if let Some(id_gagnant) = etat.gagnant() {
-        recompenses[id_gagnant] = 1.0;
-        return Ok(recompenses);
+    // Partie finie : récompenses selon le score officiel
+    if etat.gagnant().is_some() {
+        return Ok(recompenses_finales(etat));
     }
 
     // Un tour vient de se terminer : ouvrir celui du joueur suivant
@@ -207,7 +251,7 @@ fn descente(
 
         // Défensif : ne devrait jamais arriver (Piocher est toujours légal)
         if disponibles.is_empty() {
-            return deroulement(etat, rng, params.profondeur_rollout);
+            return deroulement(etat, rng, params);
         }
 
         let ln_parent = (noeud.visites as f64).ln();
@@ -247,8 +291,8 @@ fn descente(
         noeud: Box::new(Noeud::default()),
     });
 
-    // Simulation : dérouler la partie au hasard depuis le nouvel état
-    let recompenses = deroulement(etat, rng, params.profondeur_rollout)?;
+    // Simulation : dérouler la partie depuis le nouvel état
+    let recompenses = deroulement(etat, rng, params)?;
 
     let enfant = noeud
         .enfants
@@ -259,28 +303,63 @@ fn descente(
     Ok(recompenses)
 }
 
-/// Déroule la partie au hasard jusqu'à la fin ou la profondeur maximale :
-/// chaque coup est pris uniformément parmi les coups légaux.
-fn deroulement(
-    etat: &mut Partie,
-    rng: &mut StdRng,
-    profondeur_max: usize,
-) -> Result<Vec<f64>, String> {
-    for _ in 0..profondeur_max {
+/// Déroule la partie jusqu'à la fin ou la profondeur maximale, avec une
+/// politique ε-greedy : le coup heuristique avec probabilité 1−ε, un coup
+/// au hasard sinon.
+fn deroulement(etat: &mut Partie, rng: &mut StdRng, params: &IsMcts) -> Result<Vec<f64>, String> {
+    for _ in 0..params.profondeur_rollout {
         if etat.gagnant().is_some() {
             break;
         }
         ouvrir_si_necessaire(etat);
         let coups = coups_possibles(etat)?;
-        let coup = coups[rng.random_range(0..coups.len())].clone();
+
+        let coup = if rng.random::<f64>() < params.epsilon_rollout {
+            coups[rng.random_range(0..coups.len())].clone()
+        } else {
+            coup_heuristique(&coups)
+        };
         jouer_coup(etat, coup)?;
     }
 
+    Ok(recompenses_finales(etat))
+}
+
+/// Le coup qu'un bot heuristique jouerait parmi les coups légaux : la
+/// meilleure pose (ils sont triés par points décroissants), sinon piocher,
+/// sinon — si piocher est interdit — terminer.
+fn coup_heuristique(coups: &[Coup]) -> Coup {
+    coups
+        .iter()
+        .find(|coup| matches!(coup, Coup::Poser(_)))
+        .or_else(|| coups.iter().find(|coup| matches!(coup, Coup::Piocher)))
+        .unwrap_or(&coups[0])
+        .clone()
+}
+
+/// Récompenses de fin de partie, selon le score officiel du Rummikub : le
+/// gagnant marque 1 (la victoire) plus la valeur des mains adverses ; chaque
+/// perdant perd la valeur de sa propre main. Le joker resté en main vaut 30
+/// points. Le tout normalisé (/100) pour rester comparable à la prime de
+/// victoire. Sans gagnant (profondeur max atteinte) : 0 pour tous.
+fn recompenses_finales(etat: &Partie) -> Vec<f64> {
     let mut recompenses = vec![0.0; etat.joueurs.len()];
-    if let Some(id_gagnant) = etat.gagnant() {
-        recompenses[id_gagnant] = 1.0;
+    let Some(id_gagnant) = etat.gagnant() else {
+        return recompenses;
+    };
+
+    recompenses[id_gagnant] = 1.0;
+    for joueur in &etat.joueurs {
+        if joueur.id == id_gagnant {
+            continue;
+        }
+        let valeur_main: u32 = joueur.main.iter().map(|t| t.valeur_points() as u32).sum();
+        let normalisee = valeur_main as f64 / 100.0;
+        recompenses[id_gagnant] += normalisee;
+        recompenses[joueur.id] -= normalisee;
     }
-    Ok(recompenses)
+
+    recompenses
 }
 
 #[cfg(test)]
