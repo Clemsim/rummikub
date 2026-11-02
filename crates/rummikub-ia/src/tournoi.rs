@@ -5,7 +5,9 @@
 use crate::bot_heuristique;
 use crate::ismcts::IsMcts;
 use rummikub_core::partie::Partie;
-use std::time::{Duration, Instant};
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::time::{Duration, Instant, SystemTime};
 
 /// Résumé d'un tournoi
 #[derive(Debug, Clone, PartialEq)]
@@ -72,6 +74,75 @@ pub fn tournoi(nb_graines: u32, ismcts: &IsMcts) -> Result<Resultat, String> {
 
     resultat.duree = debut.elapsed();
     Ok(resultat)
+}
+
+/// Balaye plusieurs valeurs d'epsilon : chaque epsilon joue le même tournoi
+/// (mêmes graines, comparaison équitable) et la fonction retourne les points
+/// (epsilon, taux de victoire de l'ISMCTS).
+pub fn balayage_epsilon(
+    epsilons: &[f64],
+    nb_graines: u32,
+    simulations: usize,
+) -> Result<Vec<(f64, f64)>, String> {
+    epsilons
+        .iter()
+        .map(|&epsilon| {
+            let ismcts = IsMcts {
+                simulations,
+                epsilon_rollout: epsilon,
+                ..Default::default()
+            };
+            let resultat = tournoi(nb_graines, &ismcts)?;
+            Ok((epsilon, resultat.taux_ismcts()))
+        })
+        .collect()
+}
+
+/// Enregistre une ligne de résultats dans le CSV du banc (créé avec son
+/// en-tête au besoin), pour suivre l'évolution des IA au fil des versions.
+/// L'horodatage est en secondes depuis l'epoch (format CSV, sans dépendance).
+pub fn enregistrer_resultat(
+    chemin: &str,
+    epsilon: f64,
+    nb_graines: u32,
+    simulations: usize,
+    resultat: &Resultat,
+) -> Result<(), String> {
+    if let Some(dossier) = std::path::Path::new(chemin).parent()
+        && !dossier.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(dossier).map_err(|erreur| erreur.to_string())?;
+    }
+
+    let nouveau_fichier = !std::path::Path::new(chemin).exists();
+    let mut fichier = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(chemin)
+        .map_err(|erreur| erreur.to_string())?;
+
+    if nouveau_fichier {
+        writeln!(
+            fichier,
+            "date,epsilon,graines,simulations,victoires_ismcts,victoires_heuristique,non_terminees,duree_s"
+        )
+        .map_err(|erreur| erreur.to_string())?;
+    }
+
+    let horodatage = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_err(|erreur| erreur.to_string())?
+        .as_secs();
+
+    writeln!(
+        fichier,
+        "{horodatage},{epsilon},{nb_graines},{simulations},{},{},{},{:.2}",
+        resultat.victoires_ismcts,
+        resultat.victoires_heuristique,
+        resultat.non_terminees,
+        resultat.duree.as_secs_f64()
+    )
+    .map_err(|erreur| erreur.to_string())
 }
 
 #[cfg(test)]

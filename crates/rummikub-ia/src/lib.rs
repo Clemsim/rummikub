@@ -7,5 +7,6 @@
 #![allow(non_snake_case)]
 
 pub mod bot_heuristique;
+pub mod graphique;
 pub mod ismcts;
 pub mod tournoi;

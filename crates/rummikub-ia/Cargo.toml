@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+plotters = "0.3.7"
 rand = "0.10.3"
 rayon = "1.12.0"
 rummikub-core = { path = "../rummikub-core" }

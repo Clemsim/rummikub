@@ -18,6 +18,7 @@ Cargo workspace. `crates/rummikub-core` holds the game logic: package `rummikub-
 - Demo binary: `cargo run -p rummikub-core`
 - Single test: `cargo test -p rummikub-core <name>` (e.g. `cargo test -p rummikub-core test_valid_runs_with_jokers`)
 - `cargo clippy` and `cargo fmt` components are installed — run both before finalizing changes.
-- Bench: `cargo run -p rummikub-ia [graines] [simulations] [epsilon]` — ISMCTS vs the heuristic bot over fixed seeds.
+- Bench: `cargo run -p rummikub-ia [graines] [simulations] [epsilon]` — ISMCTS vs the heuristic bot over fixed seeds; results are appended to `banc/resultats.csv`.
+- Epsilon sweep + curve: `cargo run -p rummikub-ia graphique [graines] [simulations]` — writes `banc/balayage-epsilon.csv` and `banc/graphique-epsilon.png`.
 - Architecture decisions live in `docs/adr/` — read them before touching the
   move enumeration (determinism, scope), and record significant decisions there.
