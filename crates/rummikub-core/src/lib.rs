@@ -8,6 +8,7 @@
 #![allow(non_snake_case)]
 
 pub mod combinaison;
+pub mod coups;
 pub mod joueur;
 pub mod partie;
 pub mod plateau;
