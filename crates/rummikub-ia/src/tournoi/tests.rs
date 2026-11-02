@@ -42,8 +42,14 @@ fn test_les_resultats_sont_enregistres_en_csv() {
 }
 
 #[test]
-fn test_le_balayage_d_epsilon_renvoie_tous_les_points() {
-    let points = balayage_epsilon(&[1.0, 0.0], 1, 10).unwrap();
+fn test_le_balayage_renvoie_tous_les_points() {
+    let points = balayage(&[1.0, 0.0], 1, |epsilon| IsMcts {
+        epsilon_rollout: epsilon,
+        simulations: 10,
+        threads: 1,
+        ..Default::default()
+    })
+    .unwrap();
     assert_eq!(points.len(), 2);
     assert_eq!(points[0].0, 1.0);
     assert_eq!(points[1].0, 0.0);

@@ -7,16 +7,18 @@
 
 use plotters::prelude::*;
 
-/// Trace la courbe (epsilon, taux de victoire) dans un PNG
-pub fn courbe_epsilon(points: &[(f64, f64)], chemin: &str) -> Result<(), String> {
+/// Trace une courbe (valeur de réglage, taux de victoire) dans un PNG
+pub fn courbe(
+    points: &[(f64, f64)],
+    titre: &str,
+    libelle_x: &str,
+    chemin: &str,
+) -> Result<(), String> {
     let racine = BitMapBackend::new(chemin, (800, 500)).into_drawing_area();
     racine.fill(&WHITE).map_err(|erreur| erreur.to_string())?;
 
     let mut diagramme = ChartBuilder::on(&racine)
-        .caption(
-            "Taux de victoire de l'ISMCTS selon epsilon",
-            ("sans-serif", 24),
-        )
+        .caption(titre, ("sans-serif", 24))
         .margin(15)
         .x_label_area_size(45)
         .y_label_area_size(55)
@@ -25,7 +27,7 @@ pub fn courbe_epsilon(points: &[(f64, f64)], chemin: &str) -> Result<(), String>
 
     diagramme
         .configure_mesh()
-        .x_desc("epsilon (probabilité de coup aléatoire en rollout)")
+        .x_desc(libelle_x)
         .y_desc("taux de victoire")
         .disable_x_mesh()
         .disable_y_mesh()

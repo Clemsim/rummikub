@@ -71,7 +71,9 @@ fn mode_tournoi(arguments: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// Balayage d'epsilon : courbe du taux de victoire (PNG) et tableau CSV
+/// Balayages d'epsilon et de beta : courbes (PNG) et tableaux CSV.
+/// L'epsilon est balayé au réglage d'élargissement par défaut, et beta est
+/// balayé à epsilon par défaut — les deux sur les mêmes graines.
 fn mode_graphique(arguments: &[String]) -> Result<(), String> {
     let graines: u32 = arguments
         .first()
@@ -84,10 +86,44 @@ fn mode_graphique(arguments: &[String]) -> Result<(), String> {
 
     let epsilons = [0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0];
     println!("Balayage d'epsilon : {graines} graines, {simulations} simulations par décision...");
+    let points_epsilon = tournoi::balayage(&epsilons, graines, |epsilon| IsMcts {
+        epsilon_rollout: epsilon,
+        ..Default::default()
+    })?;
+    afficher_points("epsilon", &points_epsilon);
+    ecrire_csv("banc/balayage-epsilon.csv", "epsilon", &points_epsilon)?;
+    graphique::courbe(
+        &points_epsilon,
+        "Taux de victoire de l'ISMCTS selon epsilon",
+        "epsilon (probabilité de coup aléatoire en rollout)",
+        "banc/graphique-epsilon.png",
+    )?;
+    println!("Graphique écrit dans banc/graphique-epsilon.png");
 
-    let points = tournoi::balayage_epsilon(&epsilons, graines, simulations)?;
-    for (epsilon, taux) in &points {
-        println!("epsilon {epsilon:.1} → {:.0}% de victoires", taux * 100.0);
+    let betas = [0.1, 0.2, 0.3, 0.5, 0.7, 1.0];
+    println!(
+        "Balayage de beta (élargissement progressif, epsilon au défaut) : {graines} graines..."
+    );
+    let points_beta = tournoi::balayage(&betas, graines, |beta| IsMcts {
+        beta_elargissement: beta,
+        ..Default::default()
+    })?;
+    afficher_points("beta", &points_beta);
+    ecrire_csv("banc/balayage-beta.csv", "beta", &points_beta)?;
+    graphique::courbe(
+        &points_beta,
+        "Taux de victoire de l'ISMCTS selon beta",
+        "beta (élargissement progressif k = α·N^β)",
+        "banc/graphique-beta.png",
+    )?;
+    println!("Graphique écrit dans banc/graphique-beta.png");
+    Ok(())
+}
+
+/// Affiche les points d'un balayage et la meilleure valeur
+fn afficher_points(nom: &str, points: &[(f64, f64)]) {
+    for (valeur, taux) in points {
+        println!("{nom} {valeur} → {:.0}% de victoires", taux * 100.0);
     }
     let meilleur = points
         .iter()
@@ -95,21 +131,18 @@ fn mode_graphique(arguments: &[String]) -> Result<(), String> {
         .max_by(|a, b| a.1.total_cmp(&b.1))
         .expect("au moins un point de balayage");
     println!(
-        "Meilleur epsilon : {:.1} ({:.0}% de victoires)",
+        "Meilleur {nom} : {:.2} ({:.0}% de victoires)",
         meilleur.0,
         meilleur.1 * 100.0
     );
+}
 
-    // CSV du balayage
-    let mut csv = String::from("epsilon,taux_ismcts\n");
-    for (epsilon, taux) in &points {
-        csv.push_str(&format!("{epsilon},{taux}\n"));
+/// Écrit un CSV à deux colonnes (valeur, taux) pour un balayage
+fn ecrire_csv(chemin: &str, entete: &str, points: &[(f64, f64)]) -> Result<(), String> {
+    let mut csv = format!("{entete},taux_ismcts\n");
+    for (valeur, taux) in points {
+        csv.push_str(&format!("{valeur},{taux}\n"));
     }
     std::fs::create_dir_all("banc").map_err(|erreur| erreur.to_string())?;
-    std::fs::write("banc/balayage-epsilon.csv", csv).map_err(|erreur| erreur.to_string())?;
-
-    // Courbe PNG
-    graphique::courbe_epsilon(&points, "banc/graphique-epsilon.png")?;
-    println!("Graphique écrit dans banc/graphique-epsilon.png");
-    Ok(())
+    std::fs::write(chemin, csv).map_err(|erreur| erreur.to_string())
 }

@@ -76,24 +76,20 @@ pub fn tournoi(nb_graines: u32, ismcts: &IsMcts) -> Result<Resultat, String> {
     Ok(resultat)
 }
 
-/// Balaye plusieurs valeurs d'epsilon : chaque epsilon joue le même tournoi
-/// (mêmes graines, comparaison équitable) et la fonction retourne les points
-/// (epsilon, taux de victoire de l'ISMCTS).
-pub fn balayage_epsilon(
-    epsilons: &[f64],
+/// Balaye des valeurs de réglage : pour chaque valeur, l'ISMCTS construit
+/// par `fabriquer` joue le même tournoi (mêmes graines — comparaison
+/// équitable) et la fonction retourne les points (valeur, taux de victoire
+/// de l'ISMCTS).
+pub fn balayage(
+    valeurs: &[f64],
     nb_graines: u32,
-    simulations: usize,
+    fabriquer: impl Fn(f64) -> IsMcts,
 ) -> Result<Vec<(f64, f64)>, String> {
-    epsilons
+    valeurs
         .iter()
-        .map(|&epsilon| {
-            let ismcts = IsMcts {
-                simulations,
-                epsilon_rollout: epsilon,
-                ..Default::default()
-            };
-            let resultat = tournoi(nb_graines, &ismcts)?;
-            Ok((epsilon, resultat.taux_ismcts()))
+        .map(|&valeur| {
+            let resultat = tournoi(nb_graines, &fabriquer(valeur))?;
+            Ok((valeur, resultat.taux_ismcts()))
         })
         .collect()
 }

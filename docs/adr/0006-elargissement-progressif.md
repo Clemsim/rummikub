@@ -28,11 +28,45 @@ d'office.
   d'expansion a changé) — les scores de tournoi ne sont pas comparables à
   ceux des versions antérieures à graine égale.
 
+## Mesures au banc (2026-11-02, 20 graines × 50 simulations, mains tronquées à 6)
+
+Balayage de β (ε au défaut de 0.2) — `banc/balayage-beta.csv`,
+`banc/graphique-beta.png` :
+
+| β | 0.1 | 0.2 | 0.3 | 0.5 | 0.7 | 1.0 |
+|---|---|---|---|---|---|---|
+| Victoires | 95% | 95% | 95% | 55% | 15% | **0%** |
+
+- **Plateau net à β ≤ 0.3, puis effondrement** : le défaut initial (0.5)
+  était dans la pente, il est corrigé à **0.2** (milieu du plateau).
+- **β = 1.0 (aucun élargissement) perd 20 parties sur 20** : à 50
+  simulations, l'arbre non dosé s'éparpille sur des centaines d'enfants et
+  les décisions deviennent quasi aléatoires. L'élargissement n'est pas une
+  raffinement ici, c'est ce qui rend la recherche jouable.
+- Balayage d'epsilon **re-fait au nouveau β** (`banc/balayage-epsilon.csv`) :
+  courbe plate à 95% sur tout le segment ε ∈ [0, 1] — une fois l'arbre bien
+  concentré, la qualité des rollouts devient secondaire. ε garde son défaut
+  de 0.2 (réglage devenu secondaire).
+
 ## Conséquences
 
-- Le même budget de simulations se concentre sur les meilleurs coups.
-- Durée mesurée inchangée (1,0 s contre 0,98 s sur 5 graines × 50
-  simulations) ; l'effet sur la force exige des tournois plus larges que
-  5 graines — le banc et son CSV sont prêts.
+- Le même budget de simulations se concentre sur les meilleurs coups — et
+  la mesure montre que c'est le facteur dominant, devant ε et les rollouts.
+- Les valeurs mesurées dépendent du budget (50 simulations) et du cadre du
+  banc (mains tronquées) : à budget plus large, un β plus grand pourrait
+  redevenir meilleur — re-balayer si le budget change.
 - Le risque documenté (coup génique hors top-k) reste réel aux β faibles :
-  la valeur de β se règle au banc, comme epsilon.
+  le plateau observé (0.1 aussi bon que 0.3) suggère une marge, mais la
+  frontière exacte se re-valide à chaque changement de budget.
+
+## Le parti pris de l'ordre d'admission
+
+L'élargissement admet les enfants **dans l'ordre du tri par points
+immédiats** (`coups_possibles` trie par points décroissants). C'est un parti
+pris assumé : il favorise les coups marquants sur les coups d'investissement.
+Une manipulation à 0 point n'entre que lorsque k dépasse son rang — tard, et
+uniquement sur les nœuds très visités (donc proches de la racine). Le remède
+structurel serait un prior différent — donner une valeur proxy aux
+manipulations, ou plus tard un réseau de politique — pas un réglage de α/β :
+ceux-ci ne changent que la vitesse d'ouverture du nœud, pas l'ordre dans
+lequel il s'ouvre.

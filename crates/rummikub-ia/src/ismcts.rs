@@ -61,8 +61,10 @@ pub struct IsMcts {
     /// Élargissement progressif : α dans la formule k = α·N^β qui plafonne le
     /// nombre d'enfants d'un nœud visité N fois (1.0 = classique)
     pub alpha_elargissement: f64,
-    /// Élargissement progressif : β dans k = α·N^β (0.5 = racine carrée ;
-    /// 1.0 annule l'effet de dosage progressif)
+    /// Élargissement progressif : β dans k = α·N^β. Le balayage au banc
+    /// (20 graines × 50 simulations) donne 95% de victoires pour β ≤ 0.3
+    /// et un effondrement au-delà (55% à 0.5, 0% à 1.0) : défaut 0.2,
+    /// au milieu du plateau (ADR 0006)
     pub beta_elargissement: f64,
     /// Nombre de threads pour la parallélisation à la racine ; 0 = auto
     pub threads: usize,
@@ -78,7 +80,7 @@ impl Default for IsMcts {
             exploration: std::f64::consts::SQRT_2,
             epsilon_rollout: 0.2,
             alpha_elargissement: 1.0,
-            beta_elargissement: 0.5,
+            beta_elargissement: 0.2,
             threads: 0,
             graine: 0,
         }

@@ -3,8 +3,10 @@ use super::*;
 #[test]
 fn test_la_courbe_epsilon_est_ecrite_en_png() {
     let chemin = std::env::temp_dir().join("courbe-test-rummikub.png");
-    courbe_epsilon(
+    courbe(
         &[(0.0, 0.5), (0.5, 0.8), (1.0, 0.6)],
+        "Taux de victoire de l'ISMCTS selon epsilon",
+        "epsilon (probabilité de coup aléatoire en rollout)",
         chemin.to_string_lossy().as_ref(),
     )
     .unwrap();
