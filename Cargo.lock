@@ -682,6 +682,7 @@ name = "rummikub-apprentissage"
 version = "0.1.0"
 dependencies = [
  "rummikub-core",
+ "rummikub-ia",
 ]
 
 [[package]]
