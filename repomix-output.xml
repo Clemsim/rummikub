@@ -42,32 +42,5598 @@ The content is organized as follows:
 </file_summary>
 
 <directory_structure>
-src/
-  main.rs
+banc/
+  balayage-beta.csv
+  balayage-epsilon.csv
+  cartographie-epsilon-beta.csv
+  cartographie-epsilon-beta.png
+  graphique-beta.png
+  graphique-epsilon.png
+  resultats.csv
+crates/
+  rummikub-apprentissage/
+    src/
+      donnees/
+        tests.rs
+      encodeur/
+        tests.rs
+      donnees.rs
+      encodeur.rs
+      lib.rs
+      main.rs
+    Cargo.toml
+  rummikub-core/
+    src/
+      combinaison/
+        tests.rs
+      coups/
+        tests.rs
+      joueur/
+        tests.rs
+      partie/
+        tests.rs
+      plateau/
+        tests.rs
+      tuile/
+        tests.rs
+      combinaison.rs
+      coups.rs
+      joueur.rs
+      lib.rs
+      main.rs
+      partie.rs
+      plateau.rs
+      tests.rs
+      tuile.rs
+    tests/
+      partie_complete.rs
+    Cargo.toml
+  rummikub-ia/
+    src/
+      bot_heuristique/
+        tests.rs
+      graphique/
+        tests.rs
+      ismcts/
+        tests.rs
+      tournoi/
+        tests.rs
+      bot_heuristique.rs
+      graphique.rs
+      ismcts.rs
+      lib.rs
+      main.rs
+      tournoi.rs
+    tests/
+      ismcts_contre_heuristique.rs
+      partie_entre_bots.rs
+    Cargo.toml
+docs/
+  adr/
+    0001-enumeration-deterministe.md
+    0002-perimetre-enumeration-des-coups.md
+    0003-ismcts-pour-le-joueur-de-recherche.md
+    0004-fin-de-partie-par-blocage.md
+    0005-optimisations-issues-du-flamegraph.md
+    0006-elargissement-progressif.md
 .gitignore
+.repomixignore
+AGENTS.md
 Cargo.toml
+repomix.config.json
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
 
-<file path="src/main.rs">
-fn main() {
-    println!("Hello, world!");
+<file path="crates/rummikub-apprentissage/src/donnees/tests.rs">
+use super::*;
+use rummikub_core::combinaison::Combinaison;
+use rummikub_core::partie::Partie;
+use rummikub_core::tuile::{Couleur, Tuile};
+use std::time::Duration;
+
+fn partie_deux_joueurs() -> Partie {
+    Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap()
+}
+
+#[test]
+fn test_la_cible_dune_pose_marque_ses_types() {
+    let coup = Coup::Poser(vec![Combinaison::nouvelle(vec![
+        Tuile::nouvelle_standard(1, Couleur::Rouge, 10),
+        Tuile::nouvelle_standard(2, Couleur::Bleu, 10),
+        Tuile::nouvelle_standard(3, Couleur::Jaune, 10),
+    ])]);
+
+    let (types_jouees, piocher) = cible_du_coup(&coup, &BitsetTuiles::default()).unwrap();
+    assert!(!piocher);
+    assert!(types_jouees[index_type(&Tuile::nouvelle_standard(0, Couleur::Rouge, 10))]);
+    assert!(types_jouees[index_type(&Tuile::nouvelle_standard(0, Couleur::Bleu, 10))]);
+    assert!(types_jouees[index_type(&Tuile::nouvelle_standard(0, Couleur::Jaune, 10))]);
+    assert!(!types_jouees[index_type(&Tuile::nouvelle_standard(0, Couleur::Noir, 10))]);
+}
+
+#[test]
+fn test_la_cible_dune_manipulation_ne_marque_que_les_tuiles_nouvelles() {
+    // La tuile 1 est déjà sur le plateau : seule la tuile 2 (venue de la
+    // main) doit être étiquetée
+    let mut ids_plateau = BitsetTuiles::default();
+    ids_plateau.inserer(1);
+
+    let coup = Coup::Manipuler(vec![Combinaison::nouvelle(vec![
+        Tuile::nouvelle_standard(1, Couleur::Rouge, 10),
+        Tuile::nouvelle_standard(2, Couleur::Bleu, 10),
+    ])]);
+
+    let (types_jouees, piocher) = cible_du_coup(&coup, &ids_plateau).unwrap();
+    assert!(!types_jouees[index_type(&Tuile::nouvelle_standard(0, Couleur::Rouge, 10))]);
+    assert!(types_jouees[index_type(&Tuile::nouvelle_standard(0, Couleur::Bleu, 10))]);
+    assert!(!piocher);
+}
+
+#[test]
+fn test_la_pioche_et_terminer() {
+    // Piocher : drapeau levé, aucun type
+    let (types_jouees, piocher) = cible_du_coup(&Coup::Piocher, &BitsetTuiles::default()).unwrap();
+    assert!(piocher);
+    assert!(types_jouees.iter().all(|&vrai| !vrai));
+
+    // Terminer : pas de cible du tout
+    assert!(cible_du_coup(&Coup::Terminer, &BitsetTuiles::default()).is_none());
+}
+
+#[test]
+fn test_le_csv_fait_un_aller_retour() {
+    let mut types_un = [false; NB_TYPES];
+    types_un[9] = true;
+    let exemples = vec![
+        Exemple {
+            id_joueur: 0,
+            entree: vec![0.5; TAILLE_VECTEUR],
+            types_jouees: types_un,
+            piocher: false,
+        },
+        Exemple {
+            id_joueur: 1,
+            entree: vec![1.0; TAILLE_VECTEUR],
+            types_jouees: [false; NB_TYPES],
+            piocher: true,
+        },
+    ];
+
+    let chemin = std::env::temp_dir().join("dataset-test-rummikub.csv");
+    ecrire_dataset(chemin.to_string_lossy().as_ref(), &exemples).unwrap();
+    let relus = lire_dataset(chemin.to_string_lossy().as_ref()).unwrap();
+
+    assert_eq!(relus, exemples);
+    let _ = std::fs::remove_file(&chemin);
+}
+
+#[test]
+fn test_les_statistiques_comptent_les_classes() {
+    let mut types_un = [false; NB_TYPES];
+    types_un[0] = true;
+    let exemples = vec![
+        Exemple {
+            id_joueur: 0,
+            entree: vec![0.0; TAILLE_VECTEUR],
+            types_jouees: types_un,
+            piocher: false,
+        },
+        Exemple {
+            id_joueur: 1,
+            entree: vec![0.0; TAILLE_VECTEUR],
+            types_jouees: [false; NB_TYPES],
+            piocher: true,
+        },
+    ];
+
+    let stats = statistiques(&exemples);
+    assert_eq!(stats.exemples, 2);
+    assert_eq!(stats.poses, 1);
+    assert_eq!(stats.pioches, 1);
+}
+
+#[test]
+fn test_la_generation_produit_des_exemples_des_deux_joueurs() {
+    let ismcts = IsMcts {
+        simulations: 10,
+        threads: 1,
+        ..Default::default()
+    };
+
+    let exemples = generer_dataset(1, &ismcts).unwrap();
+
+    assert!(!exemples.is_empty());
+    assert!(
+        exemples
+            .iter()
+            .all(|exemple| exemple.entree.len() == TAILLE_VECTEUR)
+    );
+    assert!(exemples.iter().any(|exemple| exemple.id_joueur == 0));
+    assert!(exemples.iter().any(|exemple| exemple.id_joueur == 1));
+    // Chaque exemple porte une décision : pose ou pioche
+    assert!(exemples.iter().any(|exemple| exemple.piocher));
+    assert!(
+        exemples
+            .iter()
+            .any(|exemple| exemple.types_jouees.iter().any(|&vrai| vrai))
+    );
 }
 </file>
 
-<file path=".gitignore">
-/target
+<file path="crates/rummikub-apprentissage/src/donnees.rs">
+//! La génération et le stockage du dataset d'imitation.
+//!
+//! Principe : des parties ISMCTS contre ISMCTS sur graines fixes. À chaque
+//! décision (chaque coup du tour), on enregistre **l'état encodé** et **le
+//! coup joué** — la cible est au niveau du coup, pas du tour :
+//! - une pose étiquette les types de tuiles qu'elle dépose ;
+//! - une manipulation n'étiquette que les tuiles qu'elle apporte depuis la
+//!   main (celles déjà sur le plateau ne comptent pas) ;
+//! - une pioche pose le drapeau piocher (y compris une passe à sac vide) ;
+//! - `Terminer` ne produit pas d'exemple : le réseau ne décide pas de
+//!   terminer, c'est l'affaire du pilote quand plus rien n'est jouable.
+//!
+//! Le générateur pilote la boucle de tour avec l'API publique du core
+//! (`choisir_coup` + `jouer_coup`) : la supervision ne peut jamais tricher.
+
+use crate::encodeur::{NB_TYPES, TAILLE_VECTEUR, encoder};
+use rummikub_core::coups::{Coup, jouer_coup};
+use rummikub_core::partie::{Partie, Tour};
+use rummikub_core::tuile::BitsetTuiles;
+use rummikub_ia::ismcts::IsMcts;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::time::{Duration, SystemTime};
+
+/// Un exemple d'apprentissage : une décision de l'ISMCTS
+#[derive(Debug, Clone, PartialEq)]
+pub struct Exemple {
+    /// Le joueur qui a pris la décision
+    pub id_joueur: usize,
+    /// L'état encodé (TAILLE_VECTEUR valeurs)
+    pub entree: Vec<f32>,
+    /// Les types de tuiles jouées par ce coup
+    pub types_jouees: [bool; NB_TYPES],
+    /// Le coup était-il une pioche (y compris une passe à sac vide) ?
+    pub piocher: bool,
+}
+
+/// La cible d'apprentissage d'un coup : les types de tuiles jouées depuis la
+/// main, et le drapeau piocher. `Terminer` retourne None (pas de classe).
+fn cible_du_coup(coup: &Coup, ids_plateau: &BitsetTuiles) -> Option<([bool; NB_TYPES], bool)> {
+    let mut types_jouees = [false; NB_TYPES];
+
+    match coup {
+        Coup::Poser(combinaisons) => {
+            for combinaison in combinaisons {
+                for tuile in &combinaison.Tuiles {
+                    types_jouees[index_type(tuile)] = true;
+                }
+            }
+        }
+        Coup::Manipuler(combinaisons) => {
+            for combinaison in combinaisons {
+                for tuile in &combinaison.Tuiles {
+                    // Seules les tuiles venues de la main sont « jouées »
+                    if !ids_plateau.contient(tuile.id) {
+                        types_jouees[index_type(tuile)] = true;
+                    }
+                }
+            }
+        }
+        Coup::Piocher => return Some((types_jouees, true)),
+        Coup::Terminer => return None,
+    }
+
+    Some((types_jouees, false))
+}
+
+/// Génère le dataset : `nb_parties` d'ISMCTS contre ISMCTS sur les graines
+/// `1..=nb_parties`. Un exemple par décision.
+pub fn generer_dataset(nb_parties: u32, ismcts: &IsMcts) -> Result<Vec<Exemple>, String> {
+    let mut exemples = Vec::new();
+
+    for graine in 1..=nb_parties {
+        let mut partie = Partie::nouvelle_avec_graine(
+            vec!["ISMCTS-1".to_string(), "ISMCTS-2".to_string()],
+            graine as u64,
+        )?;
+
+        let mut tours = 0;
+        while partie.gagnant().is_none() && tours < 300 {
+            partie.ouvrir_tour();
+            let joueur = partie.index_joueur_courant;
+
+            // Le même protocole que jouer_tour, mais en enregistrant chaque
+            // décision
+            loop {
+                let entree = encoder(&partie, joueur)?;
+                let coup = ismcts
+                    .choisir_coup(&partie)?
+                    .expect("Piocher est toujours un coup disponible");
+                let ids_plateau = partie.plateau.ids_tuiles();
+
+                if let Some((types_jouees, piocher)) = cible_du_coup(&coup, &ids_plateau) {
+                    exemples.push(Exemple {
+                        id_joueur: joueur,
+                        entree,
+                        types_jouees,
+                        piocher,
+                    });
+                }
+
+                jouer_coup(&mut partie, coup)?;
+                if !matches!(partie.tour, Tour::Ouvert { .. }) {
+                    break;
+                }
+            }
+            tours += 1;
+        }
+    }
+
+    Ok(exemples)
+}
+
+/// Écrit le dataset en CSV : `joueur`, les 53 cibles de types, le drapeau
+/// piocher, puis les 116 entrées. Retourne le nombre d'exemples écrits.
+pub fn ecrire_dataset(chemin: &str, exemples: &[Exemple]) -> Result<usize, String> {
+    if let Some(dossier) = std::path::Path::new(chemin).parent()
+        && !dossier.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(dossier).map_err(|erreur| erreur.to_string())?;
+    }
+
+    let mut entetes: Vec<String> = (0..NB_TYPES).map(|index| format!("t{index}")).collect();
+    entetes.push("p".to_string());
+    entetes.extend((0..TAILLE_VECTEUR).map(|index| format!("e{index}")));
+    entetes.insert(0, "joueur".to_string());
+
+    let mut contenu = entetes.join(",");
+    contenu.push('\n');
+    for exemple in exemples {
+        let mut ligne = vec![exemple.id_joueur.to_string()];
+        ligne.extend(
+            exemple
+                .types_jouees
+                .iter()
+                .map(|&vrai| if vrai { "1" } else { "0" }.to_string()),
+        );
+        ligne.push(if exemple.piocher { "1" } else { "0" }.to_string());
+        ligne.extend(exemple.entree.iter().map(|valeur| format!("{valeur}")));
+        contenu.push_str(&ligne.join(","));
+        contenu.push('\n');
+    }
+
+    std::fs::write(chemin, contenu).map_err(|erreur| erreur.to_string())?;
+    Ok(exemples.len())
+}
+
+/// Relit un dataset écrit par [`ecrire_dataset`]
+pub fn lire_dataset(chemin: &str) -> Result<Vec<Exemple>, String> {
+    let contenu = std::fs::read_to_string(chemin).map_err(|erreur| erreur.to_string())?;
+    let mut lignes = contenu.lines();
+    let entete = lignes.next().ok_or("dataset vide")?;
+    let taille_attendue = 2 + NB_TYPES + TAILLE_VECTEUR;
+    if entete.split(',').count() != taille_attendue {
+        return Err(format!(
+            "en-tête inattendu (attendu {taille_attendue} colonnes)"
+        ));
+    }
+
+    let mut exemples = Vec::new();
+    for ligne in lignes {
+        let champs: Vec<&str> = ligne.split(',').collect();
+        if champs.len() != taille_attendue {
+            return Err(format!(
+                "ligne de dataset mal formée ({} champs au lieu de {taille_attendue})",
+                champs.len()
+            ));
+        }
+
+        let id_joueur: usize = champs[0]
+            .parse::<usize>()
+            .map_err(|erreur: std::num::ParseIntError| erreur.to_string())?;
+        let mut curseur = 1;
+
+        let mut types_jouees = [false; NB_TYPES];
+        for type_flag in &mut types_jouees {
+            *type_flag = champs[curseur] == "1";
+            curseur += 1;
+        }
+        let piocher = champs[curseur] == "1";
+        curseur += 1;
+
+        let entree: Vec<f32> = champs[curseur..]
+            .iter()
+            .map(|champ| champ.parse::<f32>().map_err(|erreur| erreur.to_string()))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        exemples.push(Exemple {
+            id_joueur,
+            entree,
+            types_jouees,
+            piocher,
+        });
+    }
+
+    Ok(exemples)
+}
+
+/// Quelques compteurs sur un dataset
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Statistiques {
+    /// Nombre total d'exemples
+    pub exemples: usize,
+    /// Exemples où au moins une tuile a été jouée (poses ou manipulations)
+    pub poses: usize,
+    /// Exemples de pioche (y compris les passes à sac vide)
+    pub pioches: usize,
+}
+
+pub fn statistiques(exemples: &[Exemple]) -> Statistiques {
+    let mut stats = Statistiques::default();
+    for exemple in exemples {
+        stats.exemples += 1;
+        if exemple.types_jouees.iter().any(|&vrai| vrai) {
+            stats.poses += 1;
+        } else if exemple.piocher {
+            stats.pioches += 1;
+        }
+    }
+    stats
+}
+
+/// Ajoute une ligne de statistiques de génération au CSV du banc
+pub fn enregistrer_statistiques(
+    chemin: &str,
+    nb_parties: u32,
+    simulations: usize,
+    stats: &Statistiques,
+    duree: Duration,
+) -> Result<(), String> {
+    if let Some(dossier) = std::path::Path::new(chemin).parent()
+        && !dossier.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(dossier).map_err(|erreur| erreur.to_string())?;
+    }
+
+    let nouveau_fichier = !std::path::Path::new(chemin).exists();
+    let mut fichier = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(chemin)
+        .map_err(|erreur| erreur.to_string())?;
+
+    if nouveau_fichier {
+        writeln!(
+            fichier,
+            "date,parties,simulations,exemples,poses,pioches,duree_s"
+        )
+        .map_err(|erreur| erreur.to_string())?;
+    }
+
+    let horodatage = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_err(|erreur| erreur.to_string())?
+        .as_secs();
+
+    writeln!(
+        fichier,
+        "{horodatage},{nb_parties},{simulations},{},{},{},{:.2}",
+        stats.exemples,
+        stats.poses,
+        stats.pioches,
+        duree.as_secs_f64()
+    )
+    .map_err(|erreur| erreur.to_string())
+}
+
+#[cfg(test)]
+mod tests;
 </file>
 
-<file path="Cargo.toml">
+<file path="crates/rummikub-apprentissage/src/main.rs">
+//! Le point d'entrée de la crate d'apprentissage.
+//!
+//! Usages :
+//! - cargo run -p rummikub-apprentissage donnees [parties] [simulations]
+
+use rummikub_apprentissage::donnees;
+use rummikub_ia::ismcts::IsMcts;
+use std::time::Instant;
+
+fn main() {
+    let mut arguments: Vec<String> = std::env::args().skip(1).collect();
+
+    if arguments.first().map(|argument| argument.as_str()) == Some("donnees") {
+        arguments.remove(0);
+        if let Err(err) = mode_donnees(&arguments) {
+            eprintln!("Erreur pendant la génération du dataset : {err}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    eprintln!("Usage : cargo run -p rummikub-apprentissage -- donnees [parties] [simulations]");
+    std::process::exit(1);
+}
+
+/// Génération du dataset d'imitation : ISMCTS contre ISMCTS, exemples
+/// écrits en CSV, statistiques ajoutées au CSV du banc.
+fn mode_donnees(arguments: &[String]) -> Result<(), String> {
+    let nb_parties: u32 = arguments
+        .first()
+        .and_then(|argument| argument.parse().ok())
+        .unwrap_or(10);
+    let simulations: usize = arguments
+        .get(1)
+        .and_then(|argument| argument.parse().ok())
+        .unwrap_or(20);
+
+    let ismcts = IsMcts {
+        simulations,
+        ..Default::default()
+    };
+    println!(
+        "Génération du dataset : {nb_parties} parties ISMCTS contre ISMCTS ({simulations} simulations)..."
+    );
+
+    let debut = Instant::now();
+    let exemples = donnees::generer_dataset(nb_parties, &ismcts)?;
+    let stats = donnees::statistiques(&exemples);
+
+    let chemin = "crates/rummikub-apprentissage/donnees/dataset.csv";
+    donnees::ecrire_dataset(chemin, &exemples)?;
+    donnees::enregistrer_statistiques(
+        "banc/donnees.csv",
+        nb_parties,
+        simulations,
+        &stats,
+        debut.elapsed(),
+    )?;
+
+    println!(
+        "{} exemples ({} poses, {} pioches) écrits dans {chemin} en {:.1}s",
+        stats.exemples,
+        stats.poses,
+        stats.pioches,
+        debut.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+</file>
+
+<file path="banc/cartographie-epsilon-beta.csv">
+epsilon,beta,taux_ismcts
+0,0.1,0.95
+0,0.2,0.95
+0,0.3,0.95
+0,0.5,0.95
+0,0.7,0.6
+0,1,0.3
+0.1,0.1,0.95
+0.1,0.2,0.95
+0.1,0.3,0.95
+0.1,0.5,0.95
+0.1,0.7,0.65
+0.1,1,0.3
+0.2,0.1,0.95
+0.2,0.2,0.95
+0.2,0.3,0.95
+0.2,0.5,0.95
+0.2,0.7,0.6
+0.2,1,0.3
+0.3,0.1,0.95
+0.3,0.2,0.95
+0.3,0.3,0.95
+0.3,0.5,0.95
+0.3,0.7,0.5263157894736842
+0.3,1,0.3
+0.5,0.1,0.95
+0.5,0.2,0.95
+0.5,0.3,0.95
+0.5,0.5,0.95
+0.5,0.7,0.55
+0.5,1,0.3
+0.7,0.1,0.95
+0.7,0.2,0.95
+0.7,0.3,0.95
+0.7,0.5,0.95
+0.7,0.7,0.5
+0.7,1,0.3
+1,0.1,0.95
+1,0.2,0.95
+1,0.3,0.95
+1,0.5,0.95
+1,0.7,0.47368421052631576
+1,1,0.3
+</file>
+
+<file path="crates/rummikub-apprentissage/src/encodeur/tests.rs">
+use super::*;
+use rummikub_core::combinaison::Combinaison;
+use rummikub_core::tuile::Couleur;
+
+fn partie_deux_joueurs() -> Partie {
+    Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap()
+}
+
+fn index_standard(couleur: Couleur, valeur: u8) -> usize {
+    couleur as usize * 13 + valeur as usize - 1
+}
+
+#[test]
+fn test_le_vecteur_a_une_taille_fixe_et_est_deterministe() {
+    let mut partie = partie_deux_joueurs();
+    let premier = encoder(&partie, 0).unwrap();
+    assert_eq!(premier.len(), TAILLE_VECTEUR);
+    assert_eq!(premier, encoder(&partie, 0).unwrap());
+
+    // Même taille quelle que soit la situation
+    partie.ouvrir_tour();
+    partie.piocher().unwrap().unwrap();
+    assert_eq!(encoder(&partie, 1).unwrap().len(), TAILLE_VECTEUR);
+}
+
+#[test]
+fn test_la_main_est_encodee_par_type() {
+    let mut partie = partie_deux_joueurs();
+    partie.joueurs[0].main = vec![
+        Tuile::nouvelle_standard(1, Couleur::Rouge, 10),
+        Tuile::nouvelle_standard(2, Couleur::Bleu, 10),
+        Tuile::nouveau_joker(3),
+    ];
+
+    let vecteur = encoder(&partie, 0).unwrap();
+
+    // Comptage /2 : un exemplaire vaut 0.5 ; le joker vit à l'index 52
+    assert_eq!(vecteur[index_standard(Couleur::Rouge, 10)], 0.5);
+    assert_eq!(vecteur[index_standard(Couleur::Bleu, 10)], 0.5);
+    assert_eq!(vecteur[NB_TYPES - 1], 0.5); // le joker
+    assert_eq!(vecteur[index_standard(Couleur::Rouge, 1)], 0.0);
+}
+
+#[test]
+fn test_deux_exemplaires_remplissent_la_case() {
+    let mut partie = partie_deux_joueurs();
+    partie.joueurs[0].main = vec![
+        Tuile::nouvelle_standard(1, Couleur::Rouge, 7),
+        Tuile::nouvelle_standard(2, Couleur::Rouge, 7),
+    ];
+
+    let vecteur = encoder(&partie, 0).unwrap();
+    assert_eq!(vecteur[index_standard(Couleur::Rouge, 7)], 1.0);
+}
+
+#[test]
+fn test_le_plateau_est_encode_a_sa_place() {
+    let mut partie = partie_deux_joueurs();
+    partie.joueurs[0].main = vec![
+        Tuile::nouvelle_standard(1, Couleur::Rouge, 10),
+        Tuile::nouvelle_standard(2, Couleur::Bleu, 10),
+        Tuile::nouvelle_standard(3, Couleur::Jaune, 10),
+    ];
+
+    // Pose initiale : le groupe des trois 10 (30 points)
+    partie.ouvrir_tour();
+    partie
+        .poser_combinaisons(vec![Combinaison::nouvelle(partie.joueurs[0].main.clone())])
+        .unwrap();
+
+    let vecteur = encoder(&partie, 0).unwrap();
+    assert_eq!(vecteur[NB_TYPES + index_standard(Couleur::Rouge, 10)], 0.5);
+    assert_eq!(vecteur[NB_TYPES + index_standard(Couleur::Bleu, 10)], 0.5);
+}
+
+#[test]
+fn test_la_main_des_adversaires_ne_fuit_pas() {
+    let mut partie = partie_deux_joueurs();
+    let vecteur_avant = encoder(&partie, 0).unwrap();
+
+    // On remplace le CONTENU de la main adverse en gardant sa taille : la
+    // vue du joueur 0 ne doit rien révéler de ce contenu
+    partie.joueurs[1].main = (0..14)
+        .map(|decalage| Tuile::nouveau_joker(90 + decalage))
+        .collect();
+
+    assert_eq!(vecteur_avant, encoder(&partie, 0).unwrap());
+}
+
+#[test]
+fn test_les_adversaires_occupent_leurs_emplacements() {
+    let mut partie = partie_deux_joueurs();
+
+    // Le joueur 0 pioche : sa main passe à 15 (0.75 en normalisé /20)
+    partie.ouvrir_tour();
+    partie.piocher().unwrap().unwrap();
+
+    let vecteur = encoder(&partie, 1).unwrap();
+    assert_eq!(vecteur[2 * NB_TYPES + 1], 15.0 / 20.0); // taille de l'adversaire
+    assert_eq!(vecteur[2 * NB_TYPES + 2], 0.0); // pas encore de pose initiale
+
+    // À 2 joueurs, les emplacements d'adversaires inutilisés valent 0
+    assert_eq!(vecteur[2 * NB_TYPES + 3], 0.0);
+    assert_eq!(vecteur[2 * NB_TYPES + 4], 0.0);
+}
+</file>
+
+<file path="crates/rummikub-apprentissage/src/encodeur.rs">
+//! L'encodeur : transformer une vue de partie en vecteur de nombres de
+//! taille fixe — l'entrée du futur réseau.
+//!
+//! Le vecteur est indexé par **type de tuile** (52 couples couleur × valeur +
+//! le joker), en application du principe d'exemplaires interchangeables
+//! (ADR 0001) : une combinaison ne peut pas contenir deux exemplaires
+//! identiques, donc une pose est exactement un sous-ensemble de types.
+//!
+//! Composition du vecteur (116 valeurs, dans l'ordre) :
+//! - [0 .. 53]   : ma main, comptage par type (0, 0.5, 1 — normalisé /2) ;
+//! - [53 .. 106] : le plateau, comptage par type (0, 0.5, 1) ;
+//! - [106]       : taille de la pioche / 106 ;
+//! - [107 .. 113]: adversaires — 3 emplacements × (taille de main / 20,
+//!   pose initiale faite), remplis à 0 au-delà du nombre d'adversaires ;
+//! - [113]       : ma pose initiale (0/1) ;
+//! - [114]       : victoire à moi (0/1) ;
+//! - [115]       : tours sans pose / nombre de joueurs (proximité du blocage).
+
+use rummikub_core::partie::{Partie, VuePartie};
+use rummikub_core::tuile::{Tuile, TuileType};
+
+/// Types de tuiles canoniques : 52 couples couleur × valeur + le joker
+pub const NB_TYPES: usize = 53;
+
+/// Taille du vecteur encodé
+pub const TAILLE_VECTEUR: usize = 2 * NB_TYPES + 10;
+
+/// L'index canonique d'un type de tuile dans le vecteur (publique : le
+/// décodeur du bot-réseau en aura besoin)
+pub fn index_type(tuile: &Tuile) -> usize {
+    match tuile.Type {
+        TuileType::Standard { couleur, valeur } => couleur as usize * 13 + valeur as usize - 1,
+        TuileType::Joker => NB_TYPES - 1,
+    }
+}
+
+/// Encode la partie du point de vue du joueur `id_joueur`
+pub fn encoder(partie: &Partie, id_joueur: usize) -> Result<Vec<f32>, String> {
+    let vue = partie.vue_pour(id_joueur)?;
+    Ok(encoder_vue(&vue))
+}
+
+/// Encode une vue de partie — le même objet que verrait un client réseau
+pub fn encoder_vue(vue: &VuePartie) -> Vec<f32> {
+    let mut vecteur = vec![0.0; TAILLE_VECTEUR];
+
+    // Ma main, comptée par type (deux exemplaires remplissent la case)
+    let moi = vue
+        .joueurs
+        .iter()
+        .find(|joueur| joueur.id == vue.id_joueur)
+        .expect("la vue contient le joueur demandé");
+    if let Some(main) = &moi.main {
+        for tuile in main {
+            vecteur[index_type(tuile)] += 0.5;
+        }
+    }
+
+    // Le plateau, compté par type
+    for combinaison in &vue.plateau.combinaisons {
+        for tuile in &combinaison.Tuiles {
+            vecteur[NB_TYPES + index_type(tuile)] += 0.5;
+        }
+    }
+
+    // La pioche
+    vecteur[2 * NB_TYPES] = vue.taille_pioche as f32 / 106.0;
+
+    // Les adversaires : au plus 3 (le jeu se joue de 2 à 4)
+    for (slot, adversaire) in vue
+        .joueurs
+        .iter()
+        .filter(|joueur| joueur.id != vue.id_joueur)
+        .take(3)
+        .enumerate()
+    {
+        vecteur[2 * NB_TYPES + 1 + slot * 2] = adversaire.taille_main as f32 / 20.0;
+        vecteur[2 * NB_TYPES + 2 + slot * 2] = if adversaire.a_fait_pose_initiale {
+            1.0
+        } else {
+            0.0
+        };
+    }
+
+    // Ma pose initiale, la victoire, la proximité du blocage
+    let index_pose_moi = 2 * NB_TYPES + 7;
+    vecteur[index_pose_moi] = if moi.a_fait_pose_initiale { 1.0 } else { 0.0 };
+    vecteur[index_pose_moi + 1] = if vue.gagnant == Some(vue.id_joueur) {
+        1.0
+    } else {
+        0.0
+    };
+    vecteur[index_pose_moi + 2] = vue.tours_sans_pose as f32 / vue.joueurs.len() as f32;
+
+    vecteur
+}
+
+#[cfg(test)]
+mod tests;
+</file>
+
+<file path="crates/rummikub-apprentissage/src/lib.rs">
+//! Apprentissage pour le Rummikub : encodage des positions, génération de
+//! données par self-play, réseaux (burn) et décodeurs. S'appuie sur l'API
+//! publique de `rummikub_core` (les règles) et de `rummikub_ia` (le
+//! professeur ISMCTS) — le réseau propose, les règles disposent.
+
+// Naming français délibéré : le lint non_snake_case reste désactivé ici aussi.
+#![allow(non_snake_case)]
+
+pub mod donnees;
+pub mod encodeur;
+</file>
+
+<file path="crates/rummikub-apprentissage/Cargo.toml">
 [package]
-name = "rummikub"
+name = "rummikub-apprentissage"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+rummikub-core = { path = "../rummikub-core" }
+rummikub-ia = { path = "../rummikub-ia" }
+</file>
+
+<file path="crates/rummikub-core/src/combinaison/tests.rs">
+use super::*;
+
+fn standard(id: u8, couleur: Couleur, valeur: u8) -> Tuile {
+    Tuile::nouvelle_standard(id, couleur, valeur)
+}
+
+#[test]
+fn test_valid_groups() {
+    // Groupe de 3 : même valeur, couleurs différentes
+    let g3 = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 7),
+        standard(2, Couleur::Bleu, 7),
+        standard(3, Couleur::Jaune, 7),
+    ]);
+    assert!(g3.est_groupe_valide());
+    assert!(g3.est_valide());
+    assert_eq!(g3.points(), 21);
+
+    // Groupe de 4
+    let g4 = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 13),
+        standard(2, Couleur::Bleu, 13),
+        standard(3, Couleur::Jaune, 13),
+        standard(4, Couleur::Noir, 13),
+    ]);
+    assert!(g4.est_groupe_valide());
+    assert_eq!(g4.points(), 52);
+}
+
+#[test]
+fn test_invalid_groups() {
+    // Deux fois la même couleur
+    let couleur_dupliquee = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 7),
+        standard(2, Couleur::Rouge, 7),
+        standard(3, Couleur::Bleu, 7),
+    ]);
+    assert!(!couleur_dupliquee.est_groupe_valide());
+
+    // Valeurs différentes
+    let valeurs_differentes = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 7),
+        standard(2, Couleur::Bleu, 8),
+        standard(3, Couleur::Jaune, 7),
+    ]);
+    assert!(!valeurs_differentes.est_groupe_valide());
+
+    // Trop court
+    let deux_tuiles = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 7),
+        standard(2, Couleur::Bleu, 7),
+    ]);
+    assert!(!deux_tuiles.est_groupe_valide());
+    assert!(!deux_tuiles.est_valide());
+}
+
+#[test]
+fn test_valid_group_with_joker() {
+    // Le joker complète le groupe et prend la valeur du groupe
+    let combinaison = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 10),
+        Tuile::nouveau_joker(2),
+        standard(3, Couleur::Noir, 10),
+    ]);
+    assert!(combinaison.est_groupe_valide());
+    assert!(combinaison.est_valide());
+    assert_eq!(combinaison.points(), 3 * 10);
+}
+
+#[test]
+fn test_invalid_runs() {
+    // Couleurs mélangées
+    let couleurs_melangees = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 4),
+        standard(2, Couleur::Bleu, 5),
+        standard(3, Couleur::Rouge, 6),
+    ]);
+    assert!(!couleurs_melangees.est_suite_valide());
+    assert!(!couleurs_melangees.est_valide());
+
+    // Doublon de valeur (deux 5 rouges)
+    let doublon = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 5),
+        standard(2, Couleur::Rouge, 5),
+        standard(3, Couleur::Rouge, 6),
+    ]);
+    assert!(!doublon.est_suite_valide());
+
+    // Trop long : une suite ne dépasse pas 13 tuiles
+    let trop_long: Vec<Tuile> = (0u8..14)
+        .map(|i| standard(i, Couleur::Rouge, i % 13 + 1))
+        .collect();
+    assert!(!Combinaison::nouvelle(trop_long).est_suite_valide());
+}
+
+#[test]
+fn test_run_with_joker_fills_gap() {
+    // [8 Bleu, Joker, 10 Bleu] : le joker prend la place du 9
+    let combinaison = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Bleu, 8),
+        Tuile::nouveau_joker(2),
+        standard(3, Couleur::Bleu, 10),
+    ]);
+    assert!(combinaison.est_suite_valide());
+    assert_eq!(combinaison.points(), 8 + 9 + 10);
+}
+
+#[test]
+fn test_run_range_bounds() {
+    // [Joker, 2 Rouge, 3 Rouge] : démarrage possible à 1 ou 2
+    let combinaison = Combinaison::nouvelle(vec![
+        Tuile::nouveau_joker(9),
+        standard(1, Couleur::Rouge, 2),
+        standard(2, Couleur::Rouge, 3),
+    ]);
+    assert_eq!(combinaison.bornes_de_suite(), Some((1, 2)));
+}
+
+#[test]
+fn test_run_forced_at_extremes() {
+    // [Joker, 1 Rouge, 2 Rouge] : seule la suite 1-2-3 contient 1 et 2
+    let debut_bas = Combinaison::nouvelle(vec![
+        Tuile::nouveau_joker(9),
+        standard(1, Couleur::Rouge, 1),
+        standard(2, Couleur::Rouge, 2),
+    ]);
+    assert_eq!(debut_bas.bornes_de_suite(), Some((1, 1)));
+    assert_eq!(debut_bas.points(), 1 + 2 + 3);
+
+    // [11 Noir, 12 Noir, 13 Noir, Joker] : le joker ne peut être que 10
+    let debut_haut = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Noir, 11),
+        standard(2, Couleur::Noir, 12),
+        standard(3, Couleur::Noir, 13),
+        Tuile::nouveau_joker(4),
+    ]);
+    assert_eq!(debut_haut.bornes_de_suite(), Some((10, 10)));
+    assert_eq!(debut_haut.points(), 10 + 11 + 12 + 13);
+}
+
+#[test]
+fn test_run_points_maximize_start() {
+    // [Joker, 10 Rouge, 11 Rouge] : le joker vaut 12 (10, 11, 12) plutôt que 9
+    let combinaison = Combinaison::nouvelle(vec![
+        Tuile::nouveau_joker(9),
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Rouge, 11),
+    ]);
+    assert!(combinaison.est_suite_valide());
+    assert_eq!(combinaison.points(), 10 + 11 + 12);
+}
+
+#[test]
+fn test_full_run_thirteen_tiles() {
+    let tuiles: Vec<Tuile> = (1u8..=13).map(|v| standard(v, Couleur::Bleu, v)).collect();
+    let combinaison = Combinaison::nouvelle(tuiles);
+    assert!(combinaison.est_valide());
+    assert_eq!(combinaison.points(), (1..=13u8).sum::<u8>() as u32); // 91
+}
+
+#[test]
+fn test_meld_neither_group_nor_run_is_invalid() {
+    let combinaison = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 4),
+        standard(2, Couleur::Rouge, 9),
+        standard(3, Couleur::Bleu, 4),
+    ]);
+    assert!(!combinaison.est_valide());
+    assert_eq!(combinaison.points(), 0);
+}
+</file>
+
+<file path="crates/rummikub-core/src/joueur/tests.rs">
+use super::*;
+use crate::tuile::Couleur;
+
+fn standard(id: u8, couleur: Couleur, valeur: u8) -> Tuile {
+    Tuile::nouvelle_standard(id, couleur, valeur)
+}
+
+#[test]
+fn test_initial_meld_success_removes_only_played_tiles() {
+    let mut joueur = Joueur::nouveau(
+        1,
+        "Alice".to_string(),
+        vec![
+            standard(1, Couleur::Bleu, 8),
+            Tuile::nouveau_joker(2),
+            standard(3, Couleur::Bleu, 10),
+            standard(4, Couleur::Rouge, 7),
+            standard(5, Couleur::Noir, 7),
+            standard(6, Couleur::Jaune, 7),
+            standard(7, Couleur::Rouge, 3), // Reste en main
+        ],
+    );
+
+    let suite = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Bleu, 8),
+        Tuile::nouveau_joker(2),
+        standard(3, Couleur::Bleu, 10),
+    ]); // 8 + 9 + 10 = 27 points
+    let groupe = Combinaison::nouvelle(vec![
+        standard(4, Couleur::Rouge, 7),
+        standard(5, Couleur::Noir, 7),
+        standard(6, Couleur::Jaune, 7),
+    ]); // 7 * 3 = 21 points
+
+    let points = joueur.jouer_pose_initiale(&[suite, groupe]).unwrap();
+    assert_eq!(points, 48);
+    assert!(joueur.a_fait_pose_initiale);
+    // Seule la tuile non jouée reste en main
+    assert_eq!(joueur.main.len(), 1);
+    assert_eq!(joueur.main[0].id, 7);
+}
+
+#[test]
+fn test_initial_meld_tile_not_in_hand_fails() {
+    let mut joueur = Joueur::nouveau(
+        1,
+        "Bob".to_string(),
+        vec![
+            standard(1, Couleur::Rouge, 7),
+            standard(2, Couleur::Bleu, 7),
+            standard(3, Couleur::Jaune, 7),
+        ],
+    );
+
+    // La tuile ID 99 n'appartient pas à la main
+    let combinaison = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 7),
+        standard(2, Couleur::Bleu, 7),
+        standard(99, Couleur::Noir, 7),
+    ]);
+
+    assert!(joueur.jouer_pose_initiale(&[combinaison]).is_err());
+    assert!(!joueur.a_fait_pose_initiale);
+    assert_eq!(joueur.main.len(), 3); // Main inchangée
+}
+
+#[test]
+fn test_initial_meld_reused_tile_fails() {
+    let mut joueur = Joueur::nouveau(
+        1,
+        "Carol".to_string(),
+        vec![
+            standard(1, Couleur::Rouge, 10),
+            standard(2, Couleur::Bleu, 10),
+            standard(3, Couleur::Jaune, 10),
+            standard(4, Couleur::Noir, 10),
+            standard(5, Couleur::Rouge, 11),
+            standard(6, Couleur::Rouge, 12),
+            Tuile::nouveau_joker(7),
+        ],
+    );
+
+    let groupe = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+        standard(4, Couleur::Noir, 10),
+    ]); // 40 points
+    let suite = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 10), // ID 1 déjà utilisé dans le groupe
+        standard(5, Couleur::Rouge, 11),
+        Tuile::nouveau_joker(7),
+    ]); // Suite 10-11-12 = 33 points
+
+    assert!(joueur.jouer_pose_initiale(&[groupe, suite]).is_err());
+    assert!(!joueur.a_fait_pose_initiale);
+    assert_eq!(joueur.main.len(), 7); // Main inchangée
+}
+
+#[test]
+fn test_initial_meld_cannot_be_played_twice() {
+    let mut joueur = Joueur::nouveau(
+        1,
+        "Dave".to_string(),
+        vec![
+            standard(1, Couleur::Rouge, 7),
+            standard(2, Couleur::Bleu, 7),
+            standard(3, Couleur::Jaune, 7),
+            standard(4, Couleur::Rouge, 10),
+            standard(5, Couleur::Bleu, 10),
+            standard(6, Couleur::Jaune, 10),
+        ],
+    );
+
+    let groupe_7 = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 7),
+        standard(2, Couleur::Bleu, 7),
+        standard(3, Couleur::Jaune, 7),
+    ]);
+    let groupe_10 = Combinaison::nouvelle(vec![
+        standard(4, Couleur::Rouge, 10),
+        standard(5, Couleur::Bleu, 10),
+        standard(6, Couleur::Jaune, 10),
+    ]);
+
+    assert!(joueur.jouer_pose_initiale(&[groupe_7, groupe_10]).is_ok());
+
+    let err = joueur.jouer_pose_initiale(&[]).unwrap_err();
+    assert!(err.contains("déjà"));
+}
+
+#[test]
+fn test_initial_meld_empty_proposal_fails() {
+    let mut joueur = Joueur::nouveau(1, "Eve".to_string(), vec![]);
+    let err = joueur.jouer_pose_initiale(&[]).unwrap_err();
+    assert!(err.contains("Aucune combinaison"));
+    assert!(!joueur.a_fait_pose_initiale);
+}
+</file>
+
+<file path="crates/rummikub-core/src/combinaison.rs">
+use crate::tuile::{Couleur, Tuile, TuileType};
+use std::collections::HashSet;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Combinaison {
+    pub Tuiles: Vec<Tuile>,
+}
+
+impl Combinaison {
+    pub fn nouvelle(Tuiles: Vec<Tuile>) -> Self {
+        Self { Tuiles }
+    }
+
+    pub fn est_valide(&self) -> bool {
+        if self.Tuiles.len() < 3 {
+            return false;
+        }
+        self.est_groupe_valide() || self.est_suite_valide()
+    }
+
+    /// Validation d'un groupe (3 ou 4 tuiles de même valeur et de couleurs différentes)
+    pub fn est_groupe_valide(&self) -> bool {
+        let longueur = self.Tuiles.len();
+        if !(3..=4).contains(&longueur) {
+            return false;
+        }
+
+        let mut valeur_groupe: Option<u8> = None;
+        let mut couleurs_vues = HashSet::new();
+
+        for Tuile in &self.Tuiles {
+            match Tuile.Type {
+                TuileType::Standard { couleur, valeur } => {
+                    // Toutes les tuiles standard doivent avoir la même valeur
+                    if let Some(valeur_attendue) = valeur_groupe {
+                        if valeur != valeur_attendue {
+                            return false;
+                        }
+                    } else {
+                        valeur_groupe = Some(valeur);
+                    }
+
+                    // Pas deux fois la même couleur dans un groupe
+                    if !couleurs_vues.insert(couleur) {
+                        return false;
+                    }
+                }
+                TuileType::Joker => {}
+            }
+        }
+
+        // Il faut au moins une tuile standard pour définir la valeur du groupe
+        valeur_groupe.is_some()
+    }
+
+    /// Validation d'une suite (>= 3 tuiles de même couleur, consécutives, avec Jokers)
+    pub fn est_suite_valide(&self) -> bool {
+        self.bornes_de_suite().is_some()
+    }
+
+    /// Analyse la suite et retourne (start_value_min, start_value_max) si la suite est valide.
+    /// Une suite de longueur L démarrant à `S` couvrira [S ..= S + L - 1].
+    fn bornes_de_suite(&self) -> Option<(u8, u8)> {
+        let longueur = self.Tuiles.len();
+        // Une suite ne peut pas dépasser 13 tuiles (1 à 13)
+        if !(3..=13).contains(&longueur) {
+            return None;
+        }
+
+        let (jokers, mut valeurs) = self.jokers_et_valeurs_de_suite()?;
+        valeurs.sort_unstable();
+
+        if !Self::valeurs_sans_doublon(&valeurs) {
+            return None; // Doublon détecté (ex : deux 5 rouges)
+        }
+
+        // Jokers restants une fois les trous internes comblés
+        // (None s'il n'y en a pas assez)
+        let jokers_restants = Self::jokers_restants(&valeurs, jokers)? as u8;
+        let v_min = *valeurs.first().unwrap();
+        let v_max = *valeurs.last().unwrap();
+        let longueur_u8 = longueur as u8;
+
+        // La valeur de début S doit satisfaire :
+        // 1. S >= 1
+        // 2. S <= v_min (la plus petite valeur standard doit être couverte)
+        // 3. S + longueur - 1 <= 13 => S <= 14 - longueur (fin de suite dans les bornes)
+        // 4. S + longueur - 1 >= v_max => S >= v_max + 1 - longueur
+        //    (la plus grande valeur standard doit être couverte)
+        let debut_min = 1u8
+            .max(v_min.saturating_sub(jokers_restants))
+            .max((v_max + 1).saturating_sub(longueur_u8));
+        let debut_max = v_min.min(14u8.saturating_sub(longueur_u8));
+
+        if debut_min <= debut_max {
+            Some((debut_min, debut_max))
+        } else {
+            None
+        }
+    }
+
+    /// Valeurs des tuiles standard d'une suite, accompagnées du nombre de jokers.
+    /// Retourne None si les couleurs ne concordent pas toutes, ou s'il n'y a que
+    /// des jokers (impossible : le jeu n'en contient que 2).
+    fn jokers_et_valeurs_de_suite(&self) -> Option<(usize, Vec<u8>)> {
+        let mut jokers: usize = 0;
+        let mut valeurs: Vec<u8> = Vec::new();
+        let mut couleur_suite: Option<Couleur> = None;
+
+        for tuile in &self.Tuiles {
+            match tuile.Type {
+                TuileType::Joker => jokers += 1,
+                TuileType::Standard { couleur, valeur } => {
+                    if let Some(couleur_attendue) = couleur_suite {
+                        if couleur != couleur_attendue {
+                            return None; // Couleurs différentes
+                        }
+                    } else {
+                        couleur_suite = Some(couleur);
+                    }
+                    valeurs.push(valeur);
+                }
+            }
+        }
+
+        if valeurs.is_empty() {
+            return None;
+        }
+
+        Some((jokers, valeurs))
+    }
+
+    /// Les valeurs triées d'une suite ne doivent pas contenir de doublon
+    fn valeurs_sans_doublon(valeurs_triees: &[u8]) -> bool {
+        valeurs_triees.windows(2).all(|paire| paire[0] != paire[1])
+    }
+
+    /// Jokers restants une fois les trous entre valeurs standard comblés.
+    /// Retourne None s'il n'y a pas assez de jokers pour les combler.
+    fn jokers_restants(valeurs_triees: &[u8], jokers: usize) -> Option<usize> {
+        let trous: usize = valeurs_triees
+            .windows(2)
+            .map(|paire| (paire[1] - paire[0] - 1) as usize)
+            .sum();
+        jokers.checked_sub(trous)
+    }
+
+    /// Calcule la valeur en points de la combinaison.
+    /// Si un joker est présent dans une suite, on prend la configuration la plus avantageuse.
+    pub fn points(&self) -> u32 {
+        if self.est_groupe_valide() {
+            // Dans un groupe, chaque joker prend la valeur de la tuile du groupe
+            let valeur_standard = self
+                .Tuiles
+                .iter()
+                .find_map(|t| match t.Type {
+                    TuileType::Standard { valeur, .. } => Some(valeur),
+                    _ => None,
+                })
+                .unwrap_or(0);
+            return (valeur_standard as u32) * (self.Tuiles.len() as u32);
+        }
+
+        if let Some((_, debut_max)) = self.bornes_de_suite() {
+            // Choix du début de séquence qui maximise les points (le plus grand S possible)
+            let longueur = self.Tuiles.len() as u32;
+            let debut = debut_max as u32;
+            let fin = debut + longueur - 1;
+            return longueur * (debut + fin) / 2;
+        }
+
+        0
+    }
+}
+
+#[cfg(test)]
+mod tests;
+</file>
+
+<file path="crates/rummikub-core/src/main.rs">
+// Démo du moteur de jeu : la logique vit dans la bibliothèque (src/lib.rs).
+use rummikub_core::{
+    combinaison::Combinaison,
+    joueur::Joueur,
+    partie::Partie,
+    tuile::{Couleur, Tuile, generer_pioche, melanger_pioche},
+};
+
+fn main() {
+    // 1. Génération & Mélange de la pioche
+    let mut pioche = generer_pioche();
+    println!("Sac généré avec {} tuiles.", pioche.len());
+    melanger_pioche(&mut pioche);
+
+    // 2. Test d'une suite avec Joker
+    // Exemple : Joker, 8 Bleu, 10 Bleu (Le joker prend la place du 9 Bleu -> suite 8, 9, 10)
+    let suite = Combinaison::nouvelle(vec![
+        Tuile::nouvelle_standard(1, Couleur::Bleu, 8),
+        Tuile::nouveau_joker(2),
+        Tuile::nouvelle_standard(3, Couleur::Bleu, 10),
+    ]);
+    println!(
+        "La suite [8, Joker, 10] est valide ? {}",
+        suite.est_valide()
+    );
+    println!("Points de cette suite : {}", suite.points()); // 8 + 9 + 10 = 27
+
+    // 3. Test de la pose initiale (30 points)
+    let mut joueur = Joueur::nouveau(
+        1,
+        "Alice".to_string(),
+        vec![
+            Tuile::nouvelle_standard(1, Couleur::Bleu, 8),
+            Tuile::nouveau_joker(2),
+            Tuile::nouvelle_standard(3, Couleur::Bleu, 10),
+            Tuile::nouvelle_standard(4, Couleur::Rouge, 7),
+            Tuile::nouvelle_standard(5, Couleur::Noir, 7),
+            Tuile::nouvelle_standard(6, Couleur::Jaune, 7),
+        ],
+    );
+
+    let groupe = Combinaison::nouvelle(vec![
+        Tuile::nouvelle_standard(4, Couleur::Rouge, 7),
+        Tuile::nouvelle_standard(5, Couleur::Noir, 7),
+        Tuile::nouvelle_standard(6, Couleur::Jaune, 7),
+    ]); // 7 * 3 = 21 points
+
+    // Total = 27 + 21 = 48 points (>= 30)
+    match joueur.jouer_pose_initiale(&[suite, groupe]) {
+        Ok(pts) => println!("Pose initiale validée avec succès avec {} points !", pts),
+        Err(err) => println!("Erreur : {}", err),
+    }
+
+    println!("Nombre de tuiles restantes en main : {}", joueur.main.len());
+
+    // 4. Partie à 2 joueurs (mains imposées pour une démo déterministe)
+    let mut partie = Partie::nouvelle(vec!["Alice".to_string(), "Bob".to_string()])
+        .expect("2 joueurs est une configuration valide");
+
+    // Alice reçoit un groupe de 4 dizaines et une tuile supplémentaire
+    partie.joueurs[0].main = vec![
+        Tuile::nouvelle_standard(200, Couleur::Rouge, 10),
+        Tuile::nouvelle_standard(201, Couleur::Bleu, 10),
+        Tuile::nouvelle_standard(202, Couleur::Jaune, 10),
+        Tuile::nouvelle_standard(203, Couleur::Noir, 10),
+        Tuile::nouvelle_standard(204, Couleur::Rouge, 3),
+    ];
+
+    partie.ouvrir_tour();
+    let groupe = Combinaison::nouvelle(vec![
+        Tuile::nouvelle_standard(200, Couleur::Rouge, 10),
+        Tuile::nouvelle_standard(201, Couleur::Bleu, 10),
+        Tuile::nouvelle_standard(202, Couleur::Jaune, 10),
+        Tuile::nouvelle_standard(203, Couleur::Noir, 10),
+    ]);
+    match partie.poser_combinaisons(vec![groupe]) {
+        Ok(points) => println!("Alice : pose initiale validée avec {} points !", points),
+        Err(err) => println!("Erreur : {}", err),
+    }
+    partie.terminer_tour().expect("le plateau reste valide");
+
+    // Tour de Bob : manipulation refusée avant sa pose initiale, il pioche
+    partie.ouvrir_tour();
+    match partie.soumettre_plateau(partie.plateau.combinaisons.clone()) {
+        Ok(()) => println!("Bob : manipulation acceptée"),
+        Err(err) => println!("Bob : manipulation refusée ({})", err),
+    }
+    match partie.piocher() {
+        Ok(Some(tuile)) => println!(
+            "Bob pioche la tuile ID {} ({} tuiles restent en pioche).",
+            tuile.id,
+            partie.pioche.len()
+        ),
+        Ok(None) => println!("Bob passe son tour : la pioche est vide."),
+        Err(err) => println!("Erreur : {}", err),
+    }
+
+    match partie.gagnant() {
+        Some(id) => println!("{} a gagné !", partie.joueurs[id].nom),
+        None => println!("Pas encore de gagnant."),
+    }
+}
+</file>
+
+<file path="crates/rummikub-core/src/tests.rs">
+use crate::combinaison::Combinaison;
+use crate::joueur::Joueur;
+use crate::tuile::{Couleur, Tuile};
+
+#[test]
+fn test_valid_runs_with_jokers() {
+    // [Joker, 2 Rouge, 3 Rouge] -> valide (1, 2, 3 ou 2, 3, 4)
+    let m1 = Combinaison::nouvelle(vec![
+        Tuile::nouveau_joker(100),
+        Tuile::nouvelle_standard(1, Couleur::Rouge, 2),
+        Tuile::nouvelle_standard(2, Couleur::Rouge, 3),
+    ]);
+    assert!(m1.est_suite_valide());
+
+    // [12 Noir, 13 Noir, Joker] -> le joker ne peut être que 11 (car > 13 interdit)
+    let m2 = Combinaison::nouvelle(vec![
+        Tuile::nouvelle_standard(3, Couleur::Noir, 12),
+        Tuile::nouvelle_standard(4, Couleur::Noir, 13),
+        Tuile::nouveau_joker(101),
+    ]);
+    assert!(m2.est_suite_valide());
+    assert_eq!(m2.points(), 11 + 12 + 13);
+
+    // [1 Rouge, 2 Rouge, Joker avec valeur 14 impossible]
+    let m3 = Combinaison::nouvelle(vec![
+        Tuile::nouvelle_standard(5, Couleur::Rouge, 1),
+        Tuile::nouvelle_standard(6, Couleur::Rouge, 13),
+        Tuile::nouveau_joker(102),
+    ]);
+    assert!(!m3.est_suite_valide()); // Écart trop grand pour 1 seul joker
+}
+
+#[test]
+fn test_initial_meld_under_30_fails() {
+    let mut joueur = Joueur::nouveau(
+        1,
+        "Bob".to_string(),
+        vec![
+            Tuile::nouvelle_standard(1, Couleur::Rouge, 1),
+            Tuile::nouvelle_standard(2, Couleur::Bleu, 1),
+            Tuile::nouvelle_standard(3, Couleur::Jaune, 1),
+        ],
+    );
+
+    let combinaison = Combinaison::nouvelle(joueur.main.clone()); // 3 points seulement
+    assert!(joueur.jouer_pose_initiale(&[combinaison]).is_err());
+    assert!(!joueur.a_fait_pose_initiale);
+}
+</file>
+
+<file path="crates/rummikub-core/tests/partie_complete.rs">
+//! Test d'intégration : une partie complète jouée uniquement via l'API
+//! publique de la bibliothèque, pour vérifier qu'elle est bien utilisable
+//! depuis l'extérieur du crate.
+
+use rummikub_core::combinaison::Combinaison;
+use rummikub_core::partie::{Partie, Tour};
+use rummikub_core::tuile::{Couleur, Tuile};
+
+#[test]
+fn test_full_game_to_victory() {
+    let mut partie = Partie::nouvelle(vec!["Alice".to_string(), "Bob".to_string()])
+        .expect("2 joueurs est une configuration valide");
+
+    // Alice reçoit un groupe de 4 dizaines
+    partie.joueurs[0].main = vec![
+        Tuile::nouvelle_standard(200, Couleur::Rouge, 10),
+        Tuile::nouvelle_standard(201, Couleur::Bleu, 10),
+        Tuile::nouvelle_standard(202, Couleur::Jaune, 10),
+        Tuile::nouvelle_standard(203, Couleur::Noir, 10),
+    ];
+
+    // Alice ouvre son tour et fait sa pose initiale (40 points)
+    partie.ouvrir_tour();
+    let groupe = Combinaison::nouvelle(partie.joueurs[0].main.clone());
+    partie.poser_combinaisons(vec![groupe]).unwrap();
+    partie.terminer_tour().unwrap();
+
+    // Bob pioche, ce qui termine son tour et rend la main à Alice
+    partie.ouvrir_tour();
+    assert!(partie.piocher().unwrap().is_some());
+    assert_eq!(partie.index_joueur_courant, 0);
+
+    // Alice n'a plus de tuiles : elle a gagné, le tour est fermé
+    assert_eq!(partie.gagnant(), Some(0));
+    assert_eq!(partie.tour, Tour::Repos);
+}
+</file>
+
+<file path="crates/rummikub-core/Cargo.toml">
+[package]
+name = "rummikub-core"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "rummikub_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rummikub"
+path = "src/main.rs"
+
+[dependencies]
+rand = "0.10.3"
+</file>
+
+<file path="crates/rummikub-ia/src/bot_heuristique/tests.rs">
+use super::*;
+use rummikub_core::tuile::{Couleur, Tuile};
+
+fn standard(id: u8, couleur: Couleur, valeur: u8) -> Tuile {
+    Tuile::nouvelle_standard(id, couleur, valeur)
+}
+
+fn partie_deux_joueurs() -> Partie {
+    Partie::nouvelle_avec_graine(vec!["Alice".to_string(), "Bob".to_string()], 7).unwrap()
+}
+
+#[test]
+fn test_choisit_la_pose_la_plus_avantageuse() {
+    let mut partie = partie_deux_joueurs();
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10), // groupe de 10 : 30 points
+        standard(4, Couleur::Rouge, 11),
+        standard(5, Couleur::Rouge, 12),
+        standard(6, Couleur::Rouge, 13), // suite 10-11-12-13 : 46 points
+    ];
+
+    partie.ouvrir_tour();
+    let coup = choisir_coup(&partie).unwrap().expect("une pose existe");
+
+    let Coup::Poser(combinaisons) = &coup else {
+        panic!("le bot devrait proposer une pose");
+    };
+    let points: u32 = combinaisons.iter().map(|c| c.points()).sum();
+    assert_eq!(points, 46); // la suite de 4 bat le groupe de 3
+}
+
+#[test]
+fn test_pioche_quand_aucune_pose_n_est_possible() {
+    let mut partie = partie_deux_joueurs();
+    // Avant la pose initiale, rien ne vaut 30 points dans cette main
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 7),
+        standard(2, Couleur::Bleu, 7),
+        standard(3, Couleur::Jaune, 7),
+    ];
+
+    let pioche_avant = partie.pioche.len();
+    jouer_tour(&mut partie).unwrap();
+
+    // Le bot a pioché, ce qui a terminé son tour
+    assert_eq!(partie.joueurs[0].main.len(), 4);
+    assert_eq!(partie.pioche.len(), pioche_avant - 1);
+    assert_eq!(partie.index_joueur_courant, 1);
+}
+</file>
+
+<file path="crates/rummikub-ia/src/bot_heuristique.rs">
+//! Le bot heuristique : la baseline du projet. Sa stratégie tient en une
+//! phrase — poser la combinaison qui rapporte le plus de points ce tour-ci,
+//! sinon piocher. Les IA plus ambitieuses (MCTS, RL) devront battre CELA pour
+//! justifier leur complexité.
+
+use rummikub_core::coups::{Coup, coups_possibles, jouer_coup};
+use rummikub_core::partie::Partie;
+
+/// Choisit le coup du joueur courant : la pose la plus avantageuse s'il en
+/// existe une (coups_possibles trie les poses par points décroissants),
+/// sinon None — il faudra piocher.
+pub fn choisir_coup(partie: &Partie) -> Result<Option<Coup>, String> {
+    let coups = coups_possibles(partie)?;
+    Ok(coups
+        .into_iter()
+        .find(|coup| matches!(coup, Coup::Poser(_))))
+}
+
+/// Joue le tour complet du joueur courant : la meilleure pose possible puis
+/// fin de tour, ou pioche — ce qui termine le tour, même à pioche vide.
+pub fn jouer_tour(partie: &mut Partie) -> Result<(), String> {
+    partie.ouvrir_tour();
+
+    match choisir_coup(partie)? {
+        Some(coup) => {
+            jouer_coup(partie, coup)?;
+            partie.terminer_tour()?;
+        }
+        None => {
+            partie.piocher()?;
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;
+</file>
+
+<file path="crates/rummikub-ia/tests/partie_entre_bots.rs">
+//! Deux bots heuristiques s'affrontent sur une partie à graine fixe :
+//! toute la simulation est reproductible d'une exécution à l'autre.
+
+use rummikub_core::partie::Partie;
+use rummikub_ia::bot_heuristique;
+
+#[test]
+fn test_partie_complete_entre_deux_bots() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["Alice".to_string(), "Bob".to_string()], 7).unwrap();
+
+    let mut tours = 0;
+    while partie.gagnant().is_none() && tours < 400 {
+        bot_heuristique::jouer_tour(&mut partie)
+            .expect("les bots ne devraient jamais tenter un coup illégal");
+        tours += 1;
+    }
+
+    // La partie s'est déroulée sans erreur ; gagnée ou plafonnée par le
+    // nombre de tours (si personne ne peut finir), l'état reste cohérent.
+    assert!(partie.gagnant().is_some() || tours == 400);
+}
+</file>
+
+<file path="docs/adr/0001-enumeration-deterministe.md">
+# ADR 0001 : Énumération des coups déterministe
+
+- Statut : accepté
+- Date : 2026-11-02
+
+## Contexte
+
+Les IA (bot heuristique, ISMCTS) choisissent un coup en parcourant la liste
+produite par `coups_possibles`. En cas d'égalité de points entre deux coups,
+l'ordre de la liste départage le choix. Par ailleurs, toute la chaîne
+« graine → distribution → énumération → décision » doit être reproductible
+pour que les simulations bot contre bot (et plus tard IA contre IA) soient
+comparables d'une exécution à l'autre.
+
+Or `HashMap` parcourt ses clés dans un ordre aléatoire à chaque exécution
+(randomisation volontaire de la bibliothèque standard) : un parcours d'ordre
+indéterminé ferait varier le choix du bot à résultat de main égal, et casserait
+les tests de reproductibilité.
+
+## Décision
+
+- L'énumération classe la main exclusivement avec des structures triées
+  (`BTreeMap`) : par valeur puis couleur pour les groupes, transposé par
+  couleur puis valeur pour les suites.
+- Les doublons exacts (deux exemplaires de la même tuile) sont
+  interchangeables : un seul exemplaire canonique par couple
+  (couleur, valeur) est énuméré.
+- Les coups sont triés par points décroissants ; les égalités tombent donc
+  dans un ordre stable et défini.
+
+## Conséquences
+
+- Même main → même liste, dans le même ordre, à chaque exécution.
+- Coût marginal : O(log n) contre O(1) par accès, négligeable à cette échelle.
+- Ne pas introduire de `HashMap` dans le chemin d'énumération sans réviser
+  cet ADR.
+</file>
+
+<file path="docs/adr/0002-perimetre-enumeration-des-coups.md">
+# ADR 0002 : Périmètre de l'énumération des coups
+
+- Statut : accepté
+- Date : 2026-11-02
+
+## Contexte
+
+L'espace de coups complet du Rummikub est immense : poses de plusieurs
+combinaisons à la fois, manipulations arbitraires du plateau (découper,
+recoller, déplacer des jokers...). L'énumération est appelée des milliers de
+fois par les IA de recherche : elle doit rester rapide tout en couvrant les
+coups qui comptent, et chaque coup énuméré doit être accepté par les règles
+(`jouer_coup` passe par `poser_combinaisons`, `soumettre_plateau`,
+`terminer_tour`, `piocher`).
+
+## Décision
+
+- **Pose initiale** : combinaisons valant 30 points ou plus à elles seules,
+  plus les paires de combinaisons disjointes dont la somme atteint 30. Les
+  paires où une combinaison vaut déjà 30+ sont exclues : la pose simple
+  existe, et poser en deux temps dans le même tour est équivalent.
+- **Après la pose initiale** : chaque combinaison candidate est une pose ;
+  les poses multi-combinaisons se font en enchaînant plusieurs coups dans le
+  même tour (l'IA peut re-décider entre chaque pose).
+- **Manipulations en une étape** : ajout d'une tuile de la main à une
+  combinaison du plateau ; libération du joker d'un groupe (remplacé par la
+  vraie tuile venue de la main, le joker rejoint une autre combinaison). Les
+  chaînes de manipulations se font en enchaînant plusieurs coups.
+- **Fin de tour** : `Coup::Terminer` est légal après avoir joué quelque
+  chose, ou à pioche vide ; `Coup::Piocher` est toujours disponible.
+
+## Limites connues (à lever si le besoin s'en fait sentir)
+
+- Trois petites combinaisons pour la pose initiale (ex. 10 + 10 + 10) ne
+  sont pas énumérées.
+- Libérer le joker d'une suite n'est pas énuméré : sa valeur y est une
+  plage, pas un point précis.
+- Les manipulations combinant deux changements hors libération de joker ne
+  sont pas énumérées d'un seul coup ; elles passent par des chaînes de
+  plusieurs coups.
+
+## Conséquences
+
+- Énumération en fractions de milliseconde, exploitable par la recherche.
+- Quelques coups rares restent hors de portée des IA sans réviser cet ADR ;
+  les humains, eux, passent toujours par l'API complète du core.
+</file>
+
+<file path="docs/adr/0004-fin-de-partie-par-blocage.md">
+# ADR 0004 : Fin de partie par blocage
+
+- Statut : accepté
+- Date : 2026-11-02
+
+## Contexte
+
+Découvert par le banc d'essai : une partie peut atteindre un état où le sac
+est vide et où plus personne ne tient la moindre combinaison jouable (vérifié
+sur une main réelle de 19 tuiles). Sans règle de fin, les deux joueurs passent
+indéfiniment : les parties ne se terminent jamais, et les rollouts de
+l'ISMCTS errent jusqu'à leur profondeur maximale.
+
+## Décision
+
+Règle officielle du Rummikub : la partie se termine quand le sac est vide et
+qu'un tour complet s'écoule sans la moindre pose. Le joueur avec la valeur de
+main la plus faible (joker resté en main = 30) gagne ; en cas d'égalité, la
+partie est nulle (`gagnant()` retourne None).
+
+- `Partie.tours_sans_pose` compte les tours consécutifs sans pose (remis à
+  zéro dès qu'un joueur pose ou manipule).
+- `Partie.est_terminee()` : sac vide + compteur ≥ nombre de joueurs.
+- `gagnant()` : victoire par main vide d'abord, puis blocage, sinon None.
+
+## Conséquences
+
+- Toutes les parties se terminent : le banc d'essai produit des scores
+  exploitables, et les rollouts de la recherche résolvent les blocages en
+  une étape (gain de vitesse appréciable).
+- Une partie nulle reste possible en cas d'égalité parfaite des valeurs de
+  main.
+</file>
+
+<file path="docs/adr/0005-optimisations-issues-du-flamegraph.md">
+# ADR 0005 : Optimisations issues du flamegraph
+
+- Statut : accepté
+- Date : 2026-11-02
+
+## Contexte
+
+Le flamegraph du tournoi (constats dans l'ADR 0003) désignait trois postes :
+l'allocation mémoire (~5%), le hachage des identifiants de tuiles dans des
+`HashSet<u8>` (~2-3%), et des `sched_yield` attribués à la surcharge rayon à
+petit budget de simulations.
+
+## Décisions
+
+1. **`BitsetTuiles`** (dans `tuile.rs`) : un bitmap de 4 × u64 (32 octets sur
+   la pile, tout identifiant u8) remplace les `HashSet<u8>` d'identifiants
+   dans `verifier_proposition`, `soumettre_plateau`, `plateau.ids_tuiles`,
+   `poses_initiales` et la déterminisation de l'ISMCTS. Opérations
+   ensemblistes bit-à-bit (`contient`, `inserer_si_absent`,
+   `retirer_si_present`, `disjoint`, `inserer_tout`, `ids`), zéro hachage,
+   zéro allocation.
+2. **Seuil de parallélisation** : rayon n'est lancé que si chaque thread
+   aurait au moins `SIMULATIONS_MIN_PAR_THREAD` simulations. Voir la saga de
+   mesure ci-dessous.
+3. **Clones évitables** : dans les rollouts et l'expansion, les coups sont
+   consommés (`swap_remove`) au lieu d'être clonés ; `poses_initiales`
+   partitionne d'abord et consomme les poses simples de 30+ points. Les
+   clones du plateau dans les manipulations restent inhérents à la
+   conception (chaque candidat est un état complet possédé) — la vraie
+   suite serait `SmallVec` pour les tuiles de combinaison, ou
+   l'élargissement progressif (ADR 0003) pour réduire le nombre de
+   candidats.
+
+## La saga de mesure (leçon centrale)
+
+Référence : 5 graines × 50 simulations, release (`banc/resultats.csv`) :
+
+| Réglage | Durée | Verdict |
+|---|---|---|
+| Référence (HashSet, threads auto) | 1,32 s | — |
+| Seuil 32 sims/thread (→ séquentiel) | 6,6 s | **réfuté** : le parallélisme valait le coup |
+| Seuil 8 sims/thread (→ 6 threads) | 1,67 s | trop haut : bride la machine |
+| Seuil 4 sims/thread (→ ~12 threads) | 0,98 s | **validé**, ~26% plus rapide que la référence |
+
+Deux leçons :
+- la surcharge de coordination rayon, visible dans le flamegraph, ne coûte
+  rien de significatif à cette échelle — plus de threads = mieux, même à
+  quelques simulations par thread ;
+- toute intuition d'optimisation se mesure avec le banc avant d'être
+  conservée.
+
+## Conséquences
+
+- Le flux aléatoire de la recherche dépend du découpage des simulations
+  entre threads : la décision est reproductible à (graine, threads,
+  simulations) fixés ; les tests épinent `threads: 1`. Changer le seuil
+  change le flux (et donc le style de jeu d'un bout à l'autre du tournoi).
+- Les identifiants de démonstration au-delà de 105 (mains imposées) restent
+  valables : le bitset couvre tout u8.
+- La mesure initiale de l'ISMCTS contre l'heuristique (100% à 5 graines)
+  reflétait un flux aléatoire particulier ; les flux suivants donnent 60-80%.
+  Les comparaisons de force exigent plus de graines que ça.
+</file>
+
+<file path=".repomixignore">
+# Add patterns to ignore here, one per line
+# Example:
+# *.log
+# tmp/
+</file>
+
+<file path="repomix.config.json">
+{
+  "$schema": "https://repomix.com/schemas/latest/schema.json",
+  "input": {
+    "maxFileSize": 52428800
+  },
+  "output": {
+    "filePath": "repomix-output.xml",
+    "style": "xml",
+    "parsableStyle": false,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "files": true,
+    "removeComments": false,
+    "removeEmptyLines": false,
+    "compress": false,
+    "topFilesLength": 5,
+    "showLineNumbers": false,
+    "truncateBase64": false,
+    "copyToClipboard": false,
+    "includeFullDirectoryStructure": false,
+    "tokenCountTree": false,
+    "git": {
+      "sortByChanges": true,
+      "sortByChangesMaxCommits": 100,
+      "includeDiffs": false,
+      "includeLogs": false,
+      "includeLogsCount": 50
+    }
+  },
+  "include": [],
+  "ignore": {
+    "useGitignore": true,
+    "useDotIgnore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": []
+  },
+  "security": {
+    "enableSecurityCheck": true
+  },
+  "tokenCount": {
+    "encoding": "o200k_base"
+  }
+}
+</file>
+
+<file path="banc/balayage-beta.csv">
+beta,taux_ismcts
+0.1,0.95
+0.2,0.95
+0.3,0.95
+0.5,0.95
+0.7,0.6
+1,0.3
+</file>
+
+<file path="crates/rummikub-core/src/plateau/tests.rs">
+use super::*;
+use crate::tuile::{Couleur, Tuile};
+
+fn standard(id: u8, couleur: Couleur, valeur: u8) -> Tuile {
+    Tuile::nouvelle_standard(id, couleur, valeur)
+}
+
+#[test]
+fn test_empty_board_is_valid() {
+    let plateau = Plateau::default();
+    assert!(plateau.est_valide());
+    assert!(plateau.ids_tuiles().est_vide());
+}
+
+#[test]
+fn test_board_validity_follows_its_melds() {
+    let mut plateau = Plateau::default();
+    plateau.placer_combinaison(Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 7),
+        standard(2, Couleur::Bleu, 7),
+        standard(3, Couleur::Jaune, 7),
+    ]));
+    assert!(plateau.est_valide());
+
+    // Une seule combinaison invalide rend le plateau invalide
+    plateau.placer_combinaison(Combinaison::nouvelle(vec![
+        standard(4, Couleur::Rouge, 5),
+        standard(5, Couleur::Rouge, 6),
+    ]));
+    assert!(!plateau.est_valide());
+}
+
+#[test]
+fn test_tile_ids_and_replacement() {
+    let mut plateau = Plateau::default();
+    plateau.placer_combinaison(Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 4),
+        standard(2, Couleur::Bleu, 4),
+        standard(3, Couleur::Jaune, 4),
+    ]));
+    plateau.placer_combinaison(Combinaison::nouvelle(vec![
+        standard(4, Couleur::Rouge, 8),
+        standard(5, Couleur::Bleu, 8),
+        standard(6, Couleur::Jaune, 8),
+    ]));
+
+    let ids = plateau.ids_tuiles();
+    assert_eq!(ids.ids().count(), 6);
+    assert!(ids.contient(1) && ids.contient(6));
+
+    // remplacer_combinaisons remplace tout l'état du plateau
+    plateau.remplacer_combinaisons(vec![Combinaison::nouvelle(vec![
+        standard(7, Couleur::Noir, 2),
+        standard(8, Couleur::Rouge, 3),
+        standard(9, Couleur::Rouge, 4),
+    ])]);
+    assert_eq!(
+        plateau.ids_tuiles().ids().collect::<Vec<u8>>(),
+        vec![7, 8, 9]
+    );
+}
+</file>
+
+<file path="crates/rummikub-core/src/tuile/tests.rs">
+use super::*;
+use std::collections::{HashMap, HashSet};
+
+#[test]
+fn test_generate_pool_contains_106_unique_tiles() {
+    let pioche = generer_pioche();
+    assert_eq!(pioche.len(), 106);
+
+    // Identifiants uniques de 0 à 105
+    let ids: HashSet<u8> = pioche.iter().map(|t| t.id).collect();
+    assert_eq!(ids.len(), 106);
+    assert_eq!(*ids.iter().max().unwrap(), 105);
+
+    // Exactement 2 jokers
+    assert_eq!(pioche.iter().filter(|t| t.est_joker()).count(), 2);
+
+    // Chaque couple (couleur, valeur) présent exactement 2 fois
+    let mut counts: HashMap<(Couleur, u8), usize> = HashMap::new();
+    for tuile in &pioche {
+        if let TuileType::Standard { couleur, valeur } = tuile.Type {
+            *counts.entry((couleur, valeur)).or_insert(0) += 1;
+        }
+    }
+    assert_eq!(counts.len(), 4 * 13);
+    assert!(counts.values().all(|&count| count == 2));
+}
+
+#[test]
+#[should_panic(expected = "La valeur d'une tuile doit être entre 1 et 13")]
+fn test_new_standard_rejects_value_zero() {
+    Tuile::nouvelle_standard(0, Couleur::Rouge, 0);
+}
+
+#[test]
+#[should_panic(expected = "La valeur d'une tuile doit être entre 1 et 13")]
+fn test_new_standard_rejects_value_above_13() {
+    Tuile::nouvelle_standard(0, Couleur::Rouge, 14);
+}
+
+#[test]
+fn test_shuffle_pool_keeps_all_tiles() {
+    let mut pioche = generer_pioche();
+    let mut before: Vec<u8> = pioche.iter().map(|t| t.id).collect();
+    before.sort_unstable();
+
+    melanger_pioche(&mut pioche);
+
+    let mut after: Vec<u8> = pioche.iter().map(|t| t.id).collect();
+    after.sort_unstable();
+    assert_eq!(before, after);
+}
+
+#[test]
+fn test_le_bitset_gere_les_identifiants() {
+    let mut ensemble = BitsetTuiles::default();
+    assert!(ensemble.est_vide());
+
+    ensemble.inserer(0);
+    ensemble.inserer(105);
+    assert!(ensemble.contient(0) && ensemble.contient(105));
+    assert!(!ensemble.contient(1));
+    assert!(!ensemble.est_vide());
+
+    // Retrait conditionnel
+    assert!(ensemble.retirer_si_present(0));
+    assert!(!ensemble.retirer_si_present(0));
+    assert!(!ensemble.contient(0));
+
+    // Disjonction
+    let mut autre = BitsetTuiles::default();
+    autre.inserer(105);
+    assert!(!ensemble.disjoint(&autre));
+    autre.retirer(105);
+    assert!(ensemble.disjoint(&autre));
+
+    // Construction depuis des ids, avec déduplication, ordre croissant
+    let construit = BitsetTuiles::depuis_ids([105, 105, 0]);
+    assert_eq!(construit.ids().collect::<Vec<u8>>(), vec![0, 105]);
+
+    // Tout le sac tient dedans
+    assert_eq!(
+        BitsetTuiles::depuis_ids(generer_pioche().iter().map(|t| t.id))
+            .ids()
+            .count(),
+        106
+    );
+}
+</file>
+
+<file path="crates/rummikub-core/src/joueur.rs">
+use crate::combinaison::Combinaison;
+use crate::tuile::{BitsetTuiles, Tuile};
+
+#[derive(Debug, Clone)]
+pub struct Joueur {
+    pub id: usize,
+    pub nom: String,
+    pub main: Vec<Tuile>,
+    pub a_fait_pose_initiale: bool,
+}
+
+impl Joueur {
+    pub fn nouveau(id: usize, nom: String, main: Vec<Tuile>) -> Self {
+        Self {
+            id,
+            nom,
+            main,
+            a_fait_pose_initiale: false,
+        }
+    }
+
+    /// Vérifie une proposition de pose sans rien modifier : chaque combinaison
+    /// doit être valide, et toutes les tuiles doivent provenir de la main du
+    /// joueur, sans réutilisation.
+    /// Retourne (points totaux, identifiants des tuiles jouées).
+    fn verifier_proposition(
+        &self,
+        proposed_melds: &[Combinaison],
+    ) -> Result<(u32, BitsetTuiles), String> {
+        if proposed_melds.is_empty() {
+            return Err("Aucune combinaison proposée.".to_string());
+        }
+
+        // 1. Vérifier que chaque combinaison est valide
+        for (i, combinaison) in proposed_melds.iter().enumerate() {
+            if !combinaison.est_valide() {
+                return Err(format!("La combinaison n°{} est invalide.", i + 1));
+            }
+        }
+
+        // 2. Vérifier que toutes les tuiles proviennent de la main du joueur (sans réutilisation)
+        let mut played_Tuile_ids = BitsetTuiles::default();
+        let ids_main = BitsetTuiles::depuis_ids(self.main.iter().map(|t| t.id));
+
+        for combinaison in proposed_melds {
+            for Tuile in &combinaison.Tuiles {
+                if !ids_main.contient(Tuile.id) {
+                    return Err(format!(
+                        "La tuile ID {} ne provient pas de la main du joueur.",
+                        Tuile.id
+                    ));
+                }
+                if !played_Tuile_ids.inserer_si_absent(Tuile.id) {
+                    return Err(format!(
+                        "La tuile ID {} a été utilisée plusieurs fois.",
+                        Tuile.id
+                    ));
+                }
+            }
+        }
+
+        // 3. Calculer les points totaux
+        let total_points: u32 = proposed_melds.iter().map(|m| m.points()).sum();
+
+        Ok((total_points, played_Tuile_ids))
+    }
+
+    /// Valide et applique la pose initiale (>= 30 points, uniquement depuis la main)
+    pub fn jouer_pose_initiale(&mut self, proposed_melds: &[Combinaison]) -> Result<u32, String> {
+        if self.a_fait_pose_initiale {
+            return Err("La pose initiale a déjà été réalisée.".to_string());
+        }
+
+        let (total_points, played_Tuile_ids) = self.verifier_proposition(proposed_melds)?;
+
+        if total_points < 30 {
+            return Err(format!(
+                "Points insuffisants : {} points obtenus (minimum 30 requis).",
+                total_points
+            ));
+        }
+
+        self.retirer_tuiles_jouees(&played_Tuile_ids);
+        self.a_fait_pose_initiale = true;
+
+        Ok(total_points)
+    }
+
+    /// Valide et applique la pose de combinaisons depuis la main
+    /// (à utiliser après la pose initiale : pas d'exigence de 30 points ici)
+    pub fn poser_combinaisons(&mut self, proposed_melds: &[Combinaison]) -> Result<u32, String> {
+        let (total_points, played_Tuile_ids) = self.verifier_proposition(proposed_melds)?;
+
+        self.retirer_tuiles_jouees(&played_Tuile_ids);
+
+        Ok(total_points)
+    }
+
+    /// Retire de la main les tuiles identifiées
+    fn retirer_tuiles_jouees(&mut self, played_Tuile_ids: &BitsetTuiles) {
+        self.main.retain(|t| !played_Tuile_ids.contient(t.id));
+    }
+}
+
+#[cfg(test)]
+mod tests;
+</file>
+
+<file path="crates/rummikub-core/src/lib.rs">
+//! Bibliothèque de logique Rummikub : tuiles, combinaisons, plateau, joueurs
+//! et déroulement d'une partie. Sans I/O, réutilisable depuis un binaire, un
+//! serveur, une page web (WASM) ou un bot.
+
+// Naming français délibéré (Tuile, Couleur::Rouge, piocher...) : le lint
+// non_snake_case est désactivé pour toute la bibliothèque, ne pas renommer
+// en anglais.
+#![allow(non_snake_case)]
+
+pub mod combinaison;
+pub mod coups;
+pub mod joueur;
+pub mod partie;
+pub mod plateau;
+pub mod tuile;
+
+#[cfg(test)]
+mod tests;
+</file>
+
+<file path="crates/rummikub-core/src/plateau.rs">
+use crate::combinaison::Combinaison;
+use crate::tuile::BitsetTuiles;
+
+/// Plateau de jeu : l'ensemble des combinaisons posées.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Plateau {
+    pub combinaisons: Vec<Combinaison>,
+}
+
+impl Plateau {
+    /// Pose une nouvelle combinaison sur le plateau
+    pub fn placer_combinaison(&mut self, combinaison: Combinaison) {
+        self.combinaisons.push(combinaison);
+    }
+
+    /// Remplace l'état complet du plateau (fin d'une manipulation)
+    pub fn remplacer_combinaisons(&mut self, combinaisons: Vec<Combinaison>) {
+        self.combinaisons = combinaisons;
+    }
+
+    /// Identifiants de toutes les tuiles posées sur le plateau
+    pub fn ids_tuiles(&self) -> BitsetTuiles {
+        self.combinaisons
+            .iter()
+            .flat_map(|combinaison| combinaison.Tuiles.iter().map(|tuile| tuile.id))
+            .collect()
+    }
+
+    /// Le plateau n'est valide que si toutes ses combinaisons le sont
+    pub fn est_valide(&self) -> bool {
+        self.combinaisons
+            .iter()
+            .all(|combinaison| combinaison.est_valide())
+    }
+}
+
+#[cfg(test)]
+mod tests;
+</file>
+
+<file path="crates/rummikub-ia/src/graphique/tests.rs">
+use super::*;
+
+#[test]
+fn test_la_courbe_epsilon_est_ecrite_en_png() {
+    let chemin = std::env::temp_dir().join("courbe-test-rummikub.png");
+    courbe(
+        &[(0.0, 0.5), (0.5, 0.8), (1.0, 0.6)],
+        "Taux de victoire de l'ISMCTS selon epsilon",
+        "epsilon (probabilité de coup aléatoire en rollout)",
+        chemin.to_string_lossy().as_ref(),
+    )
+    .unwrap();
+
+    // Un PNG réel fait largement plus de 1 Ko
+    let taille = std::fs::metadata(&chemin).unwrap().len();
+    assert!(taille > 1000);
+    let _ = std::fs::remove_file(&chemin);
+}
+</file>
+
+<file path="crates/rummikub-ia/tests/ismcts_contre_heuristique.rs">
+//! Une partie complète : l'ISMCTS contre le bot heuristique, à graine fixe.
+//! Les mains sont raccourcies pour que la recherche reste rapide dans les
+//! tests — tout le reste se joue par les règles du core.
+
+use rummikub_core::partie::Partie;
+use rummikub_ia::{bot_heuristique, ismcts::IsMcts};
+
+#[test]
+fn test_ismcts_contre_bot_heuristique() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["ISMCTS".to_string(), "Heuristique".to_string()], 11)
+            .unwrap();
+
+    // Mains raccourcies : moins de coups à énumérer, partie plus courte
+    partie.joueurs[0].main.truncate(6);
+    partie.joueurs[1].main.truncate(6);
+
+    let ismcts = IsMcts {
+        simulations: 40,
+        profondeur_rollout: 12,
+        threads: 1,
+        ..Default::default()
+    };
+
+    let mut tours = 0;
+    while partie.gagnant().is_none() && tours < 100 {
+        if partie.index_joueur_courant == 0 {
+            ismcts
+                .jouer_tour(&mut partie)
+                .expect("l'ISMCTS ne doit jamais tenter un coup illégal");
+        } else {
+            bot_heuristique::jouer_tour(&mut partie).unwrap();
+        }
+        tours += 1;
+    }
+
+    // Gagnée ou plafonnée, la partie se déroule sans coup illégal
+    assert!(partie.gagnant().is_some() || tours == 100);
+}
+</file>
+
+<file path="docs/adr/0003-ismcts-pour-le-joueur-de-recherche.md">
+# ADR 0003 : ISMCTS pour le joueur de recherche
+
+- Statut : accepté
+- Date : 2026-11-02
+
+## Contexte
+
+Le MCTS classique construit un arbre d'états. Au Rummikub, la main des
+adversaires et le contenu de la pioche sont cachés : un arbre bâti sur l'état
+réel « verrait » ce que le joueur ne peut pas voir, et produirait des plans
+conditionnés à une information interdite (*strategy fusion*).
+
+Les alternatives écartées pour l'instant : le RL (PPO — coûteux à mener à
+bien, à explorer plus tard), et un MCTS naïf sur l'état réel.
+
+## Décision
+
+ISMCTS (Information Set MCTS, Cowling et al. 2012) :
+
+1. **Déterminisation** — chaque simulation part d'un tirage cohérent des
+   informations cachées : les tuiles inconnues (tout sauf notre main et le
+   plateau) sont mélangées, chaque adversaire reçoit autant de tuiles que sa
+   main en contient vraiment, le reste devient la pioche.
+2. **Arbre partagé** — les statistiques s'accumulent dans un arbre unique
+   indexé par la séquence de coups (pas par l'état exact).
+3. **Coup::Terminer** — la recherche doit pouvoir choisir de finir son tour,
+   d'où l'ajout dans le core.
+
+Les coups légaux viennent exclusivement de `coups_possibles`, l'application
+exclusivement de `jouer_coup` : la recherche ne peut pas tricher.
+
+## Une simulation en un coup d'œil
+
+```mermaid
+flowchart TD
+    A["Simulation : déterminisation des infos cachées"] --> B{"Partie déjà gagnée ?"}
+    B -- "oui" --> G["Récompenses fixées, remontée"]
+    B -- "non" --> C{"Tous les coups légaux ont un enfant ?"}
+    C -- "oui" --> D["UCB1 choisit l'enfant prometteur, on rejoue le coup"]
+    D --> B
+    C -- "non" --> E["Expansion : un coup légal inédit au hasard"]
+    E --> F["Rollout : partie aléatoire jusqu'au bout ou profondeur max"]
+    F --> G
+```
+
+## Réglages retenus (2026-11-02)
+
+- **Rollouts ε-greedy** : pendant un rollout, jouer le coup heuristique (la
+  meilleure pose, sinon piocher) avec probabilité 1−ε, un coup au hasard avec
+  probabilité ε. ε par défaut : 0.2. Le banc d'essai (tournoi à graines)
+  permet de mesurer le meilleur ε.
+- **Récompenses officielles** : en fin de partie, le gagnant marque 1 (la
+  victoire) plus la valeur des mains adverses ; chaque perdant perd la valeur
+  de sa propre main. Le joker resté en main vaut 30 points. Le tout
+  normalisé (/100) pour rester comparable à la prime de victoire.
+- **Parallélisation à la racine** (rayon) : les simulations sont réparties
+  entre des arbres par thread — graine dérivée par thread — puis fusionnés
+  en fin de recherche. La décision est reproductible à nombre de threads
+  fixé (`threads: 1` dans les tests).
+
+## Pistes d'amélioration (en attente de décision)
+
+- **Élargissement progressif** : le facteur de branchement est énorme
+  (centaines de coups légaux par nœud) et l'arbre s'éparpille — la plupart
+  des enfants ne sont visités qu'une ou deux fois. Limiter le nombre
+  d'enfants développés par nœud selon les visites du parent (formule
+  classique k = α × N^β), en commençant par les coups les mieux triés —
+  ou plus simplement, ne développer que les coups au-dessus d'un seuil de
+  points. Risque : couper un coup génique peu évident ; le seuil se règle
+  avec le tournoi.
+- **Récompenses pour les rollouts non terminés** : estimer l'avantage
+  courant au lieu de tout mettre à 0 — attention au reward shaping mal
+  calibré.
+
+## Constats du flamegraph (2026-11-02)
+
+Profilage release d'un tournoi 5 graines × 50 simulations :
+
+- L'**allocation mémoire** domine (malloc/realloc/free ≈ 5% cumulés) : les
+  `Vec<Combinaison>` clonés pour chaque coup énuméré et chaque état de
+  manipulation sont la cible principale d'une future optimisation.
+- Le **hachage des identifiants de tuiles** (`HashSet<u8>` dans
+  `verifier_proposition`, `soumettre_plateau`, `plateau.ids_tuiles`,
+  `poses_initiales`) coûte ≈ 2-3% — remplaçable par des bitsets (106 tuiles
+  = 2 × u64) si besoin de vitesse.
+- La **surcharge rayon** (sched_yield, réveils de threads) est visible à
+  petit nombre de simulations : à 50 par décision, envisager moins de
+  threads ou plus de simulations par thread.
+- `combinaisons_possibles` elle-même n'est PAS le goulot d'étranglement :
+  c'est ce qui l'entoure (allocations + hachage) qui coûte.
+</file>
+
+<file path=".gitignore">
+/target
+/perf.data*
+/flamegraph.svg
+/crates/rummikub-apprentissage/donnees/
+</file>
+
+<file path="banc/balayage-epsilon.csv">
+epsilon,taux_ismcts
+0,0.95
+0.1,0.95
+0.2,0.95
+0.3,0.95
+0.5,0.95
+0.7,0.95
+1,0.95
+</file>
+
+<file path="crates/rummikub-core/src/coups/tests.rs">
+use super::*;
+use crate::tuile::{Couleur, Tuile};
+
+fn standard(id: u8, couleur: Couleur, valeur: u8) -> Tuile {
+    Tuile::nouvelle_standard(id, couleur, valeur)
+}
+
+/// Cherche une combinaison dont les tuiles standard sont exactement
+/// `attendues` (peu importe l'ordre), avec exactement `nb_jokers` jokers.
+fn contient(combinaisons: &[Combinaison], attendues: &[(Couleur, u8)], nb_jokers: usize) -> bool {
+    combinaisons.iter().any(|combinaison| {
+        let standards: Vec<(Couleur, u8)> = combinaison
+            .Tuiles
+            .iter()
+            .filter_map(|tuile| match tuile.Type {
+                TuileType::Standard { couleur, valeur } => Some((couleur, valeur)),
+                TuileType::Joker => None,
+            })
+            .collect();
+        let jokers = combinaison
+            .Tuiles
+            .iter()
+            .filter(|tuile| tuile.est_joker())
+            .count();
+
+        jokers == nb_jokers
+            && standards.len() == attendues.len()
+            && standards.iter().all(|paire| attendues.contains(paire))
+    })
+}
+
+#[test]
+fn test_enumere_groupes_et_suites_avec_jokers() {
+    let main = vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+        standard(4, Couleur::Rouge, 11),
+        standard(5, Couleur::Rouge, 12),
+        standard(6, Couleur::Rouge, 13),
+        Tuile::nouveau_joker(7),
+    ];
+
+    let possibles = combinaisons_possibles(&main);
+    // Déterministe : même main, même liste dans le même ordre
+    assert_eq!(possibles, combinaisons_possibles(&main));
+
+    // Le groupe des trois 10, seul puis étendu par le joker
+    assert!(contient(
+        &possibles,
+        &[
+            (Couleur::Rouge, 10),
+            (Couleur::Bleu, 10),
+            (Couleur::Jaune, 10)
+        ],
+        0
+    ));
+    assert!(contient(
+        &possibles,
+        &[
+            (Couleur::Rouge, 10),
+            (Couleur::Bleu, 10),
+            (Couleur::Jaune, 10)
+        ],
+        1
+    ));
+
+    // La suite rouge 10-11-12-13, et le joker en 9 (9-10-11-12)
+    assert!(contient(
+        &possibles,
+        &[
+            (Couleur::Rouge, 10),
+            (Couleur::Rouge, 11),
+            (Couleur::Rouge, 12),
+            (Couleur::Rouge, 13)
+        ],
+        0
+    ));
+    assert!(contient(
+        &possibles,
+        &[
+            (Couleur::Rouge, 10),
+            (Couleur::Rouge, 11),
+            (Couleur::Rouge, 12)
+        ],
+        1
+    ));
+}
+
+#[test]
+fn test_les_doublons_exact_sont_interchangeables() {
+    let main = vec![
+        standard(1, Couleur::Rouge, 7),
+        standard(2, Couleur::Rouge, 7),
+        standard(3, Couleur::Bleu, 7),
+        standard(4, Couleur::Jaune, 7),
+    ];
+
+    let possibles = combinaisons_possibles(&main);
+
+    // Le groupe des 7, en une seule variante (deux 7 rouges identiques)
+    assert!(contient(
+        &possibles,
+        &[(Couleur::Rouge, 7), (Couleur::Bleu, 7), (Couleur::Jaune, 7)],
+        0
+    ));
+
+    // Aucune combinaison ne contient deux fois le 7 rouge : même couleur
+    // interdite dans un groupe, même valeur interdite dans une suite
+    for combinaison in &possibles {
+        let rouges_7 = combinaison
+            .Tuiles
+            .iter()
+            .filter(|tuile| {
+                matches!(
+                    tuile.Type,
+                    TuileType::Standard {
+                        couleur: Couleur::Rouge,
+                        valeur: 7
+                    }
+                )
+            })
+            .count();
+        assert!(rouges_7 <= 1);
+    }
+}
+
+#[test]
+fn test_avant_pose_initiale_seulement_30_points() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 7),
+        standard(2, Couleur::Bleu, 7),
+        standard(3, Couleur::Jaune, 7),
+    ]; // un groupe de 21 points seulement
+
+    partie.ouvrir_tour();
+    let coups = coups_possibles(&partie).unwrap();
+
+    // Rien à poser (21 < 30) : il ne reste que piocher
+    assert_eq!(coups, vec![Coup::Piocher]);
+}
+
+#[test]
+fn test_apres_pose_initiale_les_poses_libres_sont_enumerees() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+        standard(4, Couleur::Rouge, 7),
+        standard(5, Couleur::Bleu, 7),
+        standard(6, Couleur::Jaune, 7),
+    ];
+
+    // Pose initiale : le groupe des 10 (30 points)
+    partie.ouvrir_tour();
+    let groupe_10 = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+    ]);
+    jouer_coup(&mut partie, Coup::Poser(vec![groupe_10])).unwrap();
+    partie.terminer_tour().unwrap();
+
+    // Le joueur 1 pioche entre-temps, puis retour au joueur 0
+    partie.ouvrir_tour();
+    partie.piocher().unwrap().unwrap();
+    partie.ouvrir_tour();
+
+    let coups = coups_possibles(&partie).unwrap();
+
+    // Le groupe des 7 (21 points) est maintenant un coup légal...
+    assert!(coups.iter().any(|coup| match coup {
+        Coup::Poser(combinaisons) => contient(
+            combinaisons,
+            &[(Couleur::Rouge, 7), (Couleur::Bleu, 7), (Couleur::Jaune, 7)],
+            0
+        ),
+        Coup::Manipuler(_) | Coup::Terminer | Coup::Piocher => false,
+    }));
+    // ...et piocher termine la liste
+    assert_eq!(coups.last(), Some(&Coup::Piocher));
+}
+
+#[test]
+fn test_coups_possibles_exige_un_tour_ouvert() {
+    let partie = Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    assert!(coups_possibles(&partie).is_err());
+}
+
+#[test]
+fn test_jouer_coup_pose_et_pioche() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+    ];
+
+    partie.ouvrir_tour();
+    let groupe = Combinaison::nouvelle(partie.joueurs[0].main.clone());
+    let points = jouer_coup(&mut partie, Coup::Poser(vec![groupe])).unwrap();
+    assert_eq!(points, 30);
+    assert!(partie.joueurs[0].main.is_empty());
+    assert_eq!(partie.plateau.combinaisons.len(), 1);
+    partie.terminer_tour().unwrap();
+
+    // Piocher termine le tour : la pioche va au joueur 1, puis rotation
+    // vers le joueur 0
+    partie.ouvrir_tour();
+    let points = jouer_coup(&mut partie, Coup::Piocher).unwrap();
+    assert_eq!(points, 0);
+    assert_eq!(partie.joueurs[1].main.len(), 15);
+    assert_eq!(partie.index_joueur_courant, 0);
+}
+
+#[test]
+fn test_poses_combinees_pour_la_pose_initiale() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 7),
+        standard(2, Couleur::Bleu, 7),
+        standard(3, Couleur::Jaune, 7), // groupe des 7 : 21 points
+        standard(4, Couleur::Rouge, 2),
+        standard(5, Couleur::Rouge, 3),
+        standard(6, Couleur::Rouge, 4), // suite 2-3-4 : 9 points
+    ];
+
+    partie.ouvrir_tour();
+    let coups = coups_possibles(&partie).unwrap();
+
+    // Aucune pose seule n'atteint 30, mais 21 + 9 = 30 : la pose combinée existe
+    assert!(
+        !coups
+            .iter()
+            .any(|coup| matches!(coup, Coup::Poser(un) if un.len() == 1))
+    );
+    let combinees: Vec<&Vec<Combinaison>> = coups
+        .iter()
+        .filter_map(|coup| match coup {
+            Coup::Poser(combinaisons) if combinaisons.len() == 2 => Some(combinaisons),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(combinees.len(), 1);
+
+    // Elle passe les vraies règles et marque la pose initiale
+    let pose = combinees[0].clone();
+    let points = jouer_coup(&mut partie, Coup::Poser(pose)).unwrap();
+    assert_eq!(points, 30);
+    assert!(partie.joueur_courant().a_fait_pose_initiale);
+    assert!(partie.joueurs[0].main.is_empty());
+}
+
+#[test]
+fn test_poses_combinees_exigent_des_tuiles_disjointes() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    // Deux 7 rouges, un bleu, un jaune, un 5 et un 6 rouges : le groupe des 7
+    // (21 points) et la suite 5-6-7 rouge (18 points) se disputent le 7 rouge
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 7),
+        standard(2, Couleur::Rouge, 7),
+        standard(3, Couleur::Bleu, 7),
+        standard(4, Couleur::Jaune, 7),
+        standard(5, Couleur::Rouge, 5),
+        standard(6, Couleur::Rouge, 6),
+    ];
+
+    partie.ouvrir_tour();
+    let coups = coups_possibles(&partie).unwrap();
+
+    // 21 + 18 = 39 >= 30, mais les deux combinaisons partagent le 7 rouge
+    // (exemplaire canonique) : aucune pose combinée n'est légale
+    assert!(
+        !coups
+            .iter()
+            .any(|coup| matches!(coup, Coup::Poser(c) if c.len() == 2))
+    );
+    assert_eq!(coups, vec![Coup::Piocher]);
+}
+
+#[test]
+fn test_manipulation_ajout_dune_tuile_au_plateau() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+        standard(4, Couleur::Noir, 10),
+    ];
+
+    // Pose initiale : groupe de trois 10 (30 points)
+    partie.ouvrir_tour();
+    jouer_coup(
+        &mut partie,
+        Coup::Poser(vec![Combinaison::nouvelle(vec![
+            standard(1, Couleur::Rouge, 10),
+            standard(2, Couleur::Bleu, 10),
+            standard(3, Couleur::Jaune, 10),
+        ])]),
+    )
+    .unwrap();
+    partie.terminer_tour().unwrap();
+    partie.ouvrir_tour();
+    partie.piocher().unwrap().unwrap();
+    partie.ouvrir_tour();
+
+    let coups = coups_possibles(&partie).unwrap();
+    let manips: Vec<&Vec<Combinaison>> = coups
+        .iter()
+        .filter_map(|coup| match coup {
+            Coup::Manipuler(etat) => Some(etat),
+            _ => None,
+        })
+        .collect();
+
+    // Une seule manipulation : compléter le groupe avec le 10 noir
+    assert_eq!(manips.len(), 1);
+    assert!(manips[0].iter().any(|c| c.points() == 40));
+
+    // Elle passe les vraies règles du jeu
+    jouer_coup(&mut partie, Coup::Manipuler(manips[0].clone())).unwrap();
+    assert!(partie.joueurs[0].main.is_empty());
+    assert_eq!(partie.plateau.combinaisons[0].Tuiles.len(), 4);
+}
+
+/// Une partie où le joueur 0 a posé [8R, 8B, joker] + [11R, 11B, 11Y]
+/// (57 points) et où c'est à nouveau son tour, avec le 8 jaune en main
+fn partie_avec_joker_liberable() -> Partie {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 8),
+        standard(2, Couleur::Bleu, 8),
+        Tuile::nouveau_joker(100),
+        standard(3, Couleur::Rouge, 11),
+        standard(4, Couleur::Bleu, 11),
+        standard(5, Couleur::Jaune, 11),
+        standard(6, Couleur::Jaune, 8), // la vraie tuile du joker
+        standard(7, Couleur::Rouge, 3), // ne sert à aucune manipulation
+    ];
+
+    // Pose initiale : 24 + 33 = 57 points
+    partie.ouvrir_tour();
+    let pose_initiale = vec![
+        Combinaison::nouvelle(vec![
+            standard(1, Couleur::Rouge, 8),
+            standard(2, Couleur::Bleu, 8),
+            Tuile::nouveau_joker(100),
+        ]),
+        Combinaison::nouvelle(vec![
+            standard(3, Couleur::Rouge, 11),
+            standard(4, Couleur::Bleu, 11),
+            standard(5, Couleur::Jaune, 11),
+        ]),
+    ];
+    jouer_coup(&mut partie, Coup::Poser(pose_initiale)).unwrap();
+    partie.terminer_tour().unwrap();
+
+    // Le joueur 1 pioche (tour terminé), puis retour au joueur 0
+    partie.ouvrir_tour();
+    partie.piocher().unwrap().unwrap();
+    partie.ouvrir_tour();
+    partie
+}
+
+#[test]
+fn test_manipulation_libere_le_joker_dun_groupe() {
+    let partie = partie_avec_joker_liberable();
+
+    let coups = coups_possibles(&partie).unwrap();
+    let manips: Vec<Vec<Combinaison>> = coups
+        .iter()
+        .filter_map(|coup| match coup {
+            Coup::Manipuler(etat) => Some(etat.clone()),
+            _ => None,
+        })
+        .collect();
+
+    // Deux manipulations : l'ajout simple du 8 jaune au groupe (4 tuiles,
+    // joker toujours dedans), et la libération du joker (groupe des 8 sans
+    // joker + joker rejoint le groupe des 11)
+    assert_eq!(manips.len(), 2);
+    assert!(manips.iter().any(|etat| {
+        etat.iter()
+            .any(|c| c.points() == 32 && c.Tuiles.iter().filter(|t| t.est_joker()).count() == 1)
+    }));
+    assert!(manips.iter().any(|etat| {
+        etat.iter()
+            .any(|c| c.points() == 24 && c.Tuiles.iter().all(|t| !t.est_joker()))
+            && etat.iter().any(|c| c.points() == 44)
+    }));
+
+    // Chaque manipulation est acceptée par les vraies règles du jeu
+    for etat in manips {
+        let mut partie = partie_avec_joker_liberable();
+        jouer_coup(&mut partie, Coup::Manipuler(etat)).unwrap();
+        // le 8 jaune est posé, seule la tuile inutile reste en main
+        assert_eq!(partie.joueur_courant().main.len(), 1);
+    }
+}
+
+#[test]
+fn test_pas_de_manipulation_avant_sa_propre_pose_initiale() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+
+    // Le joueur 0 pose un groupe de 10 (30 points)
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+    ];
+    partie.ouvrir_tour();
+    let pose = Coup::Poser(vec![Combinaison::nouvelle(partie.joueurs[0].main.clone())]);
+    jouer_coup(&mut partie, pose).unwrap();
+    partie.terminer_tour().unwrap();
+
+    // Le joueur 1 n'a pas encore fait sa pose initiale : impossible de
+    // manipuler, même si son 10 noir compléterait le groupe des 10
+    partie.joueurs[1].main = vec![standard(4, Couleur::Noir, 10)];
+    partie.ouvrir_tour();
+    let coups = coups_possibles(&partie).unwrap();
+    assert!(coups.iter().all(|coup| !matches!(coup, Coup::Manipuler(_))));
+    assert_eq!(coups, vec![Coup::Piocher]);
+}
+
+#[test]
+fn test_terminer_le_tour_est_un_coup() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+    ];
+
+    // Avant d'avoir joué, avec une pioche non vide : pas de Terminer
+    partie.ouvrir_tour();
+    let coups = coups_possibles(&partie).unwrap();
+    assert!(!coups.iter().any(|coup| matches!(coup, Coup::Terminer)));
+
+    // Après une pose : Terminer devient disponible
+    let groupe = Combinaison::nouvelle(partie.joueurs[0].main.clone());
+    jouer_coup(&mut partie, Coup::Poser(vec![groupe])).unwrap();
+    let coups = coups_possibles(&partie).unwrap();
+    assert!(coups.iter().any(|coup| matches!(coup, Coup::Terminer)));
+
+    // Et il fait ce qu'on attend : fin du tour, joueur suivant
+    let points = jouer_coup(&mut partie, Coup::Terminer).unwrap();
+    assert_eq!(points, 0);
+    assert_eq!(partie.index_joueur_courant, 1);
+}
+</file>
+
+<file path="crates/rummikub-core/src/partie/tests.rs">
+use super::*;
+use crate::tuile::Couleur;
+
+fn standard(id: u8, couleur: Couleur, valeur: u8) -> Tuile {
+    Tuile::nouvelle_standard(id, couleur, valeur)
+}
+
+fn partie_deux_joueurs() -> Partie {
+    Partie::nouvelle(vec!["Alice".to_string(), "Bob".to_string()]).unwrap()
+}
+
+/// Tour minimal légal : le joueur pioche, ce qui termine son tour
+fn tour_pioche(partie: &mut Partie) {
+    partie.ouvrir_tour();
+    assert!(partie.piocher().unwrap().is_some());
+}
+
+#[test]
+fn test_new_game_deals_14_tiles_each() {
+    let partie = partie_deux_joueurs();
+    assert_eq!(partie.joueurs.len(), 2);
+    assert!(partie.joueurs.iter().all(|joueur| joueur.main.len() == 14));
+    assert_eq!(partie.pioche.len(), 106 - 2 * 14);
+    assert!(partie.plateau.combinaisons.is_empty());
+    assert_eq!(partie.index_joueur_courant, 0);
+}
+
+#[test]
+fn test_new_game_rejects_wrong_player_count() {
+    assert!(Partie::nouvelle(vec!["Alice".to_string()]).is_err());
+    assert!(
+        Partie::nouvelle(vec![
+            "A".to_string(),
+            "B".to_string(),
+            "C".to_string(),
+            "D".to_string(),
+            "E".to_string()
+        ])
+        .is_err()
+    );
+}
+
+#[test]
+fn test_play_melds_initial_meld_below_30_rejected() {
+    let mut partie = partie_deux_joueurs();
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 7),
+        standard(2, Couleur::Bleu, 7),
+        standard(3, Couleur::Jaune, 7),
+    ]; // 21 points seulement
+
+    partie.ouvrir_tour();
+    let combinaison = Combinaison::nouvelle(partie.joueurs[0].main.clone());
+    assert!(partie.poser_combinaisons(vec![combinaison]).is_err());
+
+    // Rien n'a été posé, la main est intacte
+    assert!(partie.plateau.combinaisons.is_empty());
+    assert_eq!(partie.joueurs[0].main.len(), 3);
+    assert!(!partie.joueurs[0].a_fait_pose_initiale);
+}
+
+#[test]
+fn test_play_melds_after_initial_needs_no_30_points() {
+    let mut partie = partie_deux_joueurs();
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+        standard(4, Couleur::Rouge, 11),
+        standard(5, Couleur::Rouge, 12),
+        standard(6, Couleur::Rouge, 13),
+    ];
+
+    // Pose initiale : groupe de trois 10 (30 points)
+    partie.ouvrir_tour();
+    let groupe = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+    ]);
+    partie.poser_combinaisons(vec![groupe]).unwrap();
+    partie.terminer_tour().unwrap();
+
+    tour_pioche(&mut partie); // Bob pioche et passe
+
+    // Alice rejoue une suite de 36 points : plus d'exigence des 30 points
+    partie.ouvrir_tour();
+    let suite = Combinaison::nouvelle(vec![
+        standard(4, Couleur::Rouge, 11),
+        standard(5, Couleur::Rouge, 12),
+        standard(6, Couleur::Rouge, 13),
+    ]);
+    let points = partie.poser_combinaisons(vec![suite]).unwrap();
+    assert_eq!(points, 36);
+    assert!(partie.joueurs[0].main.is_empty());
+    assert_eq!(partie.plateau.combinaisons.len(), 2);
+
+    partie.terminer_tour().unwrap();
+    assert_eq!(partie.gagnant(), Some(0));
+}
+
+#[test]
+fn test_manipulation_extends_a_board_meld() {
+    let mut partie = partie_deux_joueurs();
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+        standard(4, Couleur::Noir, 10),
+    ];
+
+    // Pose initiale : groupe de trois 10, le 10 noir reste en main
+    partie.ouvrir_tour();
+    let groupe_3 = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+    ]);
+    partie.poser_combinaisons(vec![groupe_3]).unwrap();
+    partie.terminer_tour().unwrap();
+
+    tour_pioche(&mut partie); // Bob pioche et passe
+
+    // Alice complète son groupe avec le 10 noir resté en main
+    partie.ouvrir_tour();
+    let groupe_4 = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+        standard(4, Couleur::Noir, 10),
+    ]);
+    partie.soumettre_plateau(vec![groupe_4]).unwrap();
+    assert!(partie.joueurs[0].main.is_empty());
+    assert_eq!(partie.plateau.combinaisons.len(), 1);
+    assert_eq!(partie.plateau.combinaisons[0].Tuiles.len(), 4);
+
+    partie.terminer_tour().unwrap();
+    assert_eq!(partie.gagnant(), Some(0));
+}
+
+#[test]
+fn test_manipulation_cannot_remove_board_tiles() {
+    let mut partie = partie_deux_joueurs();
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+        standard(4, Couleur::Noir, 10),
+        standard(5, Couleur::Rouge, 3), // reste en main
+    ];
+
+    partie.ouvrir_tour();
+    let groupe_4 = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+        standard(4, Couleur::Noir, 10),
+    ]); // 40 points
+    partie.poser_combinaisons(vec![groupe_4]).unwrap();
+    partie.terminer_tour().unwrap();
+
+    tour_pioche(&mut partie); // Bob pioche et passe
+
+    // Alice tente de reprendre le 10 noir du plateau : la tuile disparaîtrait
+    partie.ouvrir_tour();
+    let groupe_3 = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+    ]);
+    assert!(partie.soumettre_plateau(vec![groupe_3]).is_err());
+
+    // Rien n'a bougé : plateau intact, main intacte
+    assert_eq!(partie.plateau.combinaisons[0].Tuiles.len(), 4);
+    assert_eq!(partie.joueurs[0].main.len(), 1);
+}
+
+#[test]
+fn test_manipulation_rejected_before_initial_meld() {
+    let mut partie = partie_deux_joueurs();
+    partie.index_joueur_courant = 1; // Bob n'a pas encore fait sa pose initiale
+
+    partie.ouvrir_tour();
+    assert!(partie.soumettre_plateau(vec![]).is_err());
+    assert!(partie.plateau.combinaisons.is_empty());
+}
+
+#[test]
+fn test_manipulation_rejects_invalid_and_foreign_tiles() {
+    let mut partie = partie_deux_joueurs();
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+    ];
+
+    partie.ouvrir_tour();
+    let main = partie.joueurs[0].main.clone();
+    partie
+        .poser_combinaisons(vec![Combinaison::nouvelle(main)])
+        .unwrap(); // pose initiale 30 points
+    partie.terminer_tour().unwrap();
+    partie.index_joueur_courant = 0; // Alice, pose initiale déjà faite
+
+    partie.ouvrir_tour();
+
+    // Combinaison invalide (2 tuiles)
+    let trop_court = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+    ]);
+    assert!(partie.soumettre_plateau(vec![trop_court]).is_err());
+
+    // La tuile 99 n'est ni sur le plateau ni dans la main d'Alice (vide)
+    let triche = Combinaison::nouvelle(vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(99, Couleur::Jaune, 10),
+    ]);
+    assert!(partie.soumettre_plateau(vec![triche]).is_err());
+
+    // Le plateau n'a pas bougé
+    assert_eq!(partie.plateau.combinaisons[0].Tuiles.len(), 3);
+}
+
+#[test]
+fn test_draw_tile_ends_the_turn() {
+    let mut partie = partie_deux_joueurs();
+    partie.ouvrir_tour();
+    let pioche_avant = partie.pioche.len();
+    let main_avant = partie.joueurs[0].main.len();
+
+    let tuile = partie.piocher().unwrap().expect("la pioche n'est pas vide");
+    assert_eq!(partie.joueurs[0].main.len(), main_avant + 1);
+    assert!(partie.joueurs[0].main.iter().any(|t| t.id == tuile.id));
+    assert_eq!(partie.pioche.len(), pioche_avant - 1);
+
+    // Piocher met fin au tour : passage au joueur suivant
+    assert_eq!(partie.index_joueur_courant, 1);
+    assert_eq!(partie.tour, Tour::Repos);
+
+    // Tour terminé : repiocher est refusé
+    assert!(partie.piocher().is_err());
+}
+
+#[test]
+fn test_draw_tile_passes_when_pool_is_empty() {
+    let mut partie = partie_deux_joueurs();
+    partie.pioche.clear();
+    partie.ouvrir_tour();
+    let main_avant = partie.joueurs[0].main.len();
+
+    // Sac vide : le joueur passe son tour sans piocher
+    assert!(partie.piocher().unwrap().is_none());
+    assert_eq!(partie.joueurs[0].main.len(), main_avant);
+    assert_eq!(partie.index_joueur_courant, 1);
+}
+
+#[test]
+fn test_draw_tile_rejected_after_playing() {
+    let mut partie = partie_deux_joueurs();
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+    ];
+    partie.ouvrir_tour();
+    let main = partie.joueurs[0].main.clone();
+    partie
+        .poser_combinaisons(vec![Combinaison::nouvelle(main)])
+        .unwrap();
+
+    // Le joueur a déjà posé : impossible de piocher
+    assert!(partie.piocher().is_err());
+
+    // Le tour peut quand même se terminer normalement
+    partie.terminer_tour().unwrap();
+    assert_eq!(partie.index_joueur_courant, 1);
+}
+
+#[test]
+fn test_end_turn_requires_an_open_turn_and_an_action() {
+    let mut partie = partie_deux_joueurs();
+
+    // Sans tour ouvert, les actions sont refusées
+    assert!(partie.terminer_tour().is_err());
+    assert!(partie.piocher().is_err());
+    assert!(partie.poser_combinaisons(vec![]).is_err());
+
+    // Un tour sans action est refusé tant que le sac contient des tuiles :
+    // le joueur doit jouer ou piocher
+    partie.ouvrir_tour();
+    assert!(partie.terminer_tour().is_err());
+
+    // Piocher est l'action minimale : elle termine le tour
+    partie.ouvrir_tour();
+    assert!(partie.piocher().unwrap().is_some());
+    assert_eq!(partie.index_joueur_courant, 1);
+
+    // Rotation complète : retour au joueur 0
+    partie.ouvrir_tour();
+    assert!(partie.piocher().unwrap().is_some());
+    assert_eq!(partie.index_joueur_courant, 0);
+}
+
+#[test]
+fn test_end_turn_allows_passing_when_pool_is_empty() {
+    let mut partie = partie_deux_joueurs();
+    partie.pioche.clear();
+
+    partie.ouvrir_tour();
+    partie.terminer_tour().unwrap(); // passe autorisée à sac vide
+    assert_eq!(partie.index_joueur_courant, 1);
+}
+
+#[test]
+fn test_end_turn_cancels_on_invalid_board() {
+    let mut partie = partie_deux_joueurs();
+    partie.ouvrir_tour(); // sauvegarde : plateau vide
+
+    // On force un plateau invalide, comme après une manipulation ratée
+    partie.plateau = Plateau {
+        combinaisons: vec![Combinaison::nouvelle(vec![
+            standard(1, Couleur::Rouge, 5),
+            standard(2, Couleur::Rouge, 6),
+        ])],
+    };
+    let main_avant = partie.joueurs[0].main.clone();
+
+    assert!(partie.terminer_tour().is_err());
+
+    // Tour annulé : plateau restauré, main intacte, même joueur
+    assert!(partie.plateau.combinaisons.is_empty());
+    assert_eq!(partie.joueurs[0].main, main_avant);
+    assert_eq!(partie.index_joueur_courant, 0);
+    assert_eq!(partie.tour, Tour::Repos);
+}
+
+#[test]
+fn test_winner_when_hand_is_empty() {
+    let mut partie = partie_deux_joueurs();
+    assert_eq!(partie.gagnant(), None);
+
+    partie.joueurs[0].main.clear();
+    assert_eq!(partie.gagnant(), Some(0));
+}
+
+#[test]
+fn test_une_partie_est_clonable() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["Alice".to_string(), "Bob".to_string()], 5).unwrap();
+    let copie = partie.clone();
+
+    // La partie originale avance, la copie reste figée à l'instant initial
+    partie.ouvrir_tour();
+    partie.piocher().unwrap().unwrap();
+
+    assert!(matches!(copie.tour, Tour::Repos));
+    assert_eq!(copie.index_joueur_courant, 0);
+    assert_eq!(copie.pioche.len(), 106 - 2 * 14);
+    assert_eq!(copie.joueurs[0].main.len(), 14);
+}
+
+/// Une main sans la moindre combinaison possible : que des paires de deux
+/// couleurs par valeur, et des valeurs espacées de 3 pour éviter les suites.
+fn main_sans_combinaison(ids: &mut u8, valeurs: [u8; 4]) -> Vec<Tuile> {
+    let mut main = Vec::new();
+    for valeur in valeurs {
+        for couleur in [Couleur::Rouge, Couleur::Bleu] {
+            main.push(Tuile::nouvelle_standard(*ids, couleur, valeur));
+            *ids += 1;
+            main.push(Tuile::nouvelle_standard(*ids, couleur, valeur));
+            *ids += 1;
+        }
+    }
+    main
+}
+
+#[test]
+fn test_la_partie_se_termine_par_blocage() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    partie.pioche.clear(); // sac vide
+
+    let mut ids = 0;
+    // Joueur 0 : valeur de main 4 × (1 + 4 + 7 + 10) = 88
+    partie.joueurs[0].main = main_sans_combinaison(&mut ids, [1, 4, 7, 10]);
+    // Joueur 1 : valeur de main 4 × (2 + 5 + 8 + 11) = 104
+    partie.joueurs[1].main = main_sans_combinaison(&mut ids, [2, 5, 8, 11]);
+
+    // Une passe ne suffit pas : la partie n'est pas encore terminée
+    partie.ouvrir_tour();
+    partie.piocher().unwrap();
+    assert!(partie.gagnant().is_none());
+
+    // Après un tour complet sans pose (2 joueurs), le plus faible gagne
+    partie.ouvrir_tour();
+    partie.piocher().unwrap();
+    assert!(partie.est_terminee());
+    assert_eq!(partie.gagnant(), Some(0));
+}
+
+#[test]
+fn test_le_blocage_avec_egalite_donne_une_partie_nulle() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    partie.pioche.clear();
+
+    let mut ids = 0;
+    partie.joueurs[0].main = main_sans_combinaison(&mut ids, [1, 4, 7, 10]); // 88 points
+    partie.joueurs[1].main = main_sans_combinaison(&mut ids, [1, 4, 7, 10]); // 88 points aussi
+
+    partie.ouvrir_tour();
+    partie.piocher().unwrap();
+    partie.ouvrir_tour();
+    partie.piocher().unwrap();
+
+    assert!(partie.est_terminee());
+    assert_eq!(partie.gagnant(), None); // égalité : partie nulle
+}
+
+#[test]
+fn test_la_main_vide_bat_le_blocage() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    partie.pioche.clear();
+
+    let mut ids = 0;
+    partie.joueurs[0].main = main_sans_combinaison(&mut ids, [1, 4, 7, 10]); // 88 points
+    partie.joueurs[1].main = vec![]; // main vide : victoire immédiate
+
+    partie.ouvrir_tour();
+    partie.piocher().unwrap();
+    partie.ouvrir_tour();
+    partie.piocher().unwrap();
+
+    // Même en situation de blocage, la main vide reste la victoire prioritaire
+    assert_eq!(partie.gagnant(), Some(1));
+}
+
+#[test]
+fn test_meme_graine_meme_distribution() {
+    let noms = vec!["Alice".to_string(), "Bob".to_string()];
+    let partie_a = Partie::nouvelle_avec_graine(noms.clone(), 42).unwrap();
+    let partie_b = Partie::nouvelle_avec_graine(noms, 42).unwrap();
+
+    // Même graine : les mains distribuées sont identiques
+    assert_eq!(partie_a.joueurs[0].main, partie_b.joueurs[0].main);
+    assert_eq!(partie_a.joueurs[1].main, partie_b.joueurs[1].main);
+
+    // Graine différente : distribution différente (pratiquement certain)
+    let partie_c =
+        Partie::nouvelle_avec_graine(vec!["Alice".to_string(), "Bob".to_string()], 43).unwrap();
+    assert_ne!(partie_a.joueurs[0].main, partie_c.joueurs[0].main);
+}
+
+#[test]
+fn test_vue_pour_ne_montrer_que_sa_propre_main() {
+    let mut partie = partie_deux_joueurs();
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+    ];
+
+    let vue_alice = partie.vue_pour(0).unwrap();
+
+    // Alice voit sa propre main en détail
+    assert_eq!(vue_alice.joueurs[0].main.as_ref().unwrap().len(), 3);
+    assert_eq!(vue_alice.joueurs[0].taille_main, 3);
+
+    // Bob n'est visible que par la taille de sa main
+    assert!(vue_alice.joueurs[1].main.is_none());
+    assert_eq!(vue_alice.joueurs[1].taille_main, 14);
+
+    // Le plateau, la taille de la pioche et l'état du tour sont publics
+    assert!(vue_alice.plateau.combinaisons.is_empty());
+    assert_eq!(vue_alice.taille_pioche, 106 - 2 * 14);
+    assert_eq!(vue_alice.index_joueur_courant, 0);
+    assert_eq!(vue_alice.gagnant, None);
+
+    // Identifiant inconnu : erreur
+    assert!(partie.vue_pour(9).is_err());
+}
+</file>
+
+<file path="crates/rummikub-core/src/tuile.rs">
+use rand::SeedableRng;
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Couleur {
+    Rouge,
+    Bleu,
+    Jaune,
+    Noir,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TuileType {
+    Standard { couleur: Couleur, valeur: u8 }, // valeur: 1..=13
+    Joker,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Tuile {
+    pub id: u8, // Identifiant unique (0..106)
+    pub Type: TuileType,
+}
+
+impl Tuile {
+    pub fn nouvelle_standard(id: u8, couleur: Couleur, valeur: u8) -> Self {
+        assert!(
+            (1..=13).contains(&valeur),
+            "La valeur d'une tuile doit être entre 1 et 13"
+        );
+        Self {
+            id,
+            Type: TuileType::Standard { couleur, valeur },
+        }
+    }
+
+    pub fn nouveau_joker(id: u8) -> Self {
+        Self {
+            id,
+            Type: TuileType::Joker,
+        }
+    }
+
+    pub fn est_joker(&self) -> bool {
+        matches!(self.Type, TuileType::Joker)
+    }
+
+    /// Valeur de la tuile pour le décompte final : sa valeur, ou 30 pour un
+    /// joker resté en main (règle officielle)
+    pub fn valeur_points(&self) -> u8 {
+        match self.Type {
+            TuileType::Standard { valeur, .. } => valeur,
+            TuileType::Joker => 30,
+        }
+    }
+}
+
+/// Un ensemble d'identifiants de tuiles, stocké en bitmap : tout identifiant
+/// u8 tient dans 4 × u64, soit 32 octets sur la pile — aucun hachage, aucune
+/// allocation (voir ADR 0005).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct BitsetTuiles {
+    mots: [u64; 4],
+}
+
+impl BitsetTuiles {
+    /// Insère l'identifiant
+    pub fn inserer(&mut self, id: u8) {
+        self.mots[id as usize / 64] |= 1 << (id as usize % 64);
+    }
+
+    /// Insère l'identifiant et retourne false s'il était déjà présent
+    pub fn inserer_si_absent(&mut self, id: u8) -> bool {
+        if self.contient(id) {
+            return false;
+        }
+        self.inserer(id);
+        true
+    }
+
+    /// Retire l'identifiant
+    pub fn retirer(&mut self, id: u8) {
+        self.mots[id as usize / 64] &= !(1 << (id as usize % 64));
+    }
+
+    /// Retire l'identifiant et retourne true s'il était présent
+    pub fn retirer_si_present(&mut self, id: u8) -> bool {
+        if !self.contient(id) {
+            return false;
+        }
+        self.retirer(id);
+        true
+    }
+
+    /// L'identifiant est-il présent ?
+    pub fn contient(&self, id: u8) -> bool {
+        self.mots[id as usize / 64] & (1 << (id as usize % 64)) != 0
+    }
+
+    /// L'ensemble est-il vide ?
+    pub fn est_vide(&self) -> bool {
+        self.mots == [0; 4]
+    }
+
+    /// Aucun identifiant en commun avec l'autre ensemble ?
+    pub fn disjoint(&self, autre: &Self) -> bool {
+        self.mots
+            .iter()
+            .zip(autre.mots)
+            .all(|(mot, mot_autre)| mot & mot_autre == 0)
+    }
+
+    /// Insère tous les identifiants de l'autre ensemble
+    pub fn inserer_tout(&mut self, autre: &Self) {
+        for (mot, mot_autre) in self.mots.iter_mut().zip(autre.mots) {
+            *mot |= mot_autre;
+        }
+    }
+
+    /// Itère sur les identifiants présents, dans l'ordre croissant
+    pub fn ids(&self) -> impl Iterator<Item = u8> + '_ {
+        (0..=u8::MAX).filter(|id| self.contient(*id))
+    }
+
+    /// Construit l'ensemble depuis une suite d'identifiants
+    pub fn depuis_ids(ids: impl IntoIterator<Item = u8>) -> Self {
+        ids.into_iter().collect()
+    }
+}
+
+impl FromIterator<u8> for BitsetTuiles {
+    fn from_iter<I: IntoIterator<Item = u8>>(ids: I) -> Self {
+        let mut ensemble = Self::default();
+        for id in ids {
+            ensemble.inserer(id);
+        }
+        ensemble
+    }
+}
+
+/// Génère les 106 tuiles du jeu (4 couleurs * 13 valeurs * 2 exemplaires + 2 jokers)
+pub fn generer_pioche() -> Vec<Tuile> {
+    let mut pioche = Vec::with_capacity(106);
+    let mut current_id: u8 = 0;
+
+    let colors = [Couleur::Rouge, Couleur::Bleu, Couleur::Jaune, Couleur::Noir];
+
+    // 2 exemplaires de chaque tuile
+    for _ in 0..2 {
+        for &couleur in &colors {
+            for valeur in 1..=13 {
+                pioche.push(Tuile::nouvelle_standard(current_id, couleur, valeur));
+                current_id += 1;
+            }
+        }
+    }
+
+    // 2 Jokers
+    pioche.push(Tuile::nouveau_joker(current_id));
+    current_id += 1;
+    pioche.push(Tuile::nouveau_joker(current_id));
+
+    pioche
+}
+
+/// Mélange le sac de tuiles aléatoirement
+pub fn melanger_pioche(pioche: &mut [Tuile]) {
+    let mut rng = rand::rng();
+    pioche.shuffle(&mut rng);
+}
+
+/// Mélange la pioche de façon déterministe : la même graine produit toujours
+/// le même ordre de tirage (rejeu à l'identique pour l'IA, les tests, le réseau)
+pub fn melanger_pioche_avec_graine(pioche: &mut [Tuile], graine: u64) {
+    let mut rng = StdRng::seed_from_u64(graine);
+    pioche.shuffle(&mut rng);
+}
+
+#[cfg(test)]
+mod tests;
+</file>
+
+<file path="crates/rummikub-ia/src/ismcts/tests.rs">
+use super::*;
+use rummikub_core::tuile::{Couleur, Tuile};
+
+fn standard(id: u8, couleur: Couleur, valeur: u8) -> Tuile {
+    Tuile::nouvelle_standard(id, couleur, valeur)
+}
+
+#[test]
+fn test_la_determinisation_est_coherente_et_reproductible() {
+    let partie = Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 3).unwrap();
+    let vue = determiniser(&partie, &mut StdRng::seed_from_u64(42));
+
+    // La main du joueur qui regarde est intacte, les tailles sont préservées
+    assert_eq!(vue.joueurs[0].main, partie.joueurs[0].main);
+    assert_eq!(vue.joueurs[1].main.len(), partie.joueurs[1].main.len());
+
+    // Aucune tuile n'apparaît deux fois dans la partie devinée
+    let mut ids: Vec<u8> = vue
+        .joueurs
+        .iter()
+        .flat_map(|joueur| joueur.main.iter().map(|t| t.id))
+        .collect();
+    ids.extend(vue.pioche.iter().map(|t| t.id));
+    ids.extend(vue.plateau.ids_tuiles().ids());
+    assert_eq!(ids.len(), 106);
+
+    // Même graine → même devinette
+    let autre = determiniser(&partie, &mut StdRng::seed_from_u64(42));
+    assert_eq!(vue.joueurs[1].main, autre.joueurs[1].main);
+    assert_eq!(vue.pioche, autre.pioche);
+}
+
+#[test]
+fn test_ismcts_pose_pour_gagner() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    // La main forme exactement un groupe de 10 (30 points) : le poser vide
+    // la main et gagne immédiatement, alors que piocher retarde tout
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+    ];
+
+    partie.ouvrir_tour();
+    let bot = IsMcts {
+        simulations: 300,
+        profondeur_rollout: 30,
+        threads: 1,
+        ..Default::default()
+    };
+    let coup = bot
+        .choisir_coup(&partie)
+        .unwrap()
+        .expect("des coups existent");
+
+    let Coup::Poser(combinaisons) = &coup else {
+        panic!("l'ISMCTS devrait poser le groupe gagnant, pas {coup:?}");
+    };
+    assert_eq!(combinaisons[0].points(), 30);
+}
+
+#[test]
+fn test_ismcts_est_reproductible() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    partie.joueurs[0].main = vec![
+        standard(1, Couleur::Rouge, 10),
+        standard(2, Couleur::Bleu, 10),
+        standard(3, Couleur::Jaune, 10),
+    ];
+    partie.ouvrir_tour();
+
+    let bot = IsMcts {
+        simulations: 100,
+        threads: 1,
+        graine: 5,
+        ..Default::default()
+    };
+    assert_eq!(
+        bot.choisir_coup(&partie).unwrap(),
+        bot.choisir_coup(&partie).unwrap()
+    );
+}
+
+#[test]
+fn test_les_recompenses_suivent_le_score_officiel() {
+    let mut partie =
+        Partie::nouvelle_avec_graine(vec!["A".to_string(), "B".to_string()], 1).unwrap();
+    // Le joueur 0 a la main vide (gagnant), le joueur 1 un 7 et un joker :
+    // 7 + 30 = 37 points de pénalité
+    partie.joueurs[0].main.clear();
+    partie.joueurs[1].main = vec![standard(1, Couleur::Rouge, 7), Tuile::nouveau_joker(99)];
+
+    let recompenses = recompenses_finales(&partie);
+    assert!((recompenses[0] - 1.37).abs() < 1e-9);
+    assert!((recompenses[1] + 0.37).abs() < 1e-9);
+
+    // Sans gagnant (profondeur max atteinte) : 0 pour tous
+    partie.joueurs[0].main = vec![standard(2, Couleur::Bleu, 3)];
+    assert_eq!(recompenses_finales(&partie), vec![0.0, 0.0]);
+}
+</file>
+
+<file path="crates/rummikub-ia/src/tournoi/tests.rs">
+use super::*;
+use std::time::Duration;
+
+#[test]
+fn test_le_tournoi_compte_toutes_les_parties() {
+    let ismcts = IsMcts {
+        simulations: 20,
+        profondeur_rollout: 10,
+        threads: 1,
+        ..Default::default()
+    };
+
+    let resultat = tournoi(3, &ismcts).unwrap();
+
+    let jouees =
+        resultat.victoires_ismcts + resultat.victoires_heuristique + resultat.non_terminees;
+    assert_eq!(jouees, 3);
+}
+
+#[test]
+fn test_les_resultats_sont_enregistres_en_csv() {
+    let chemin = std::env::temp_dir().join("banc-test-rummikub.csv");
+    let _ = std::fs::remove_file(&chemin);
+
+    let resultat = Resultat {
+        victoires_ismcts: 2,
+        victoires_heuristique: 1,
+        non_terminees: 0,
+        duree: Duration::from_secs(3),
+    };
+    enregistrer_resultat(chemin.to_string_lossy().as_ref(), 0.2, 3, 50, &resultat).unwrap();
+    enregistrer_resultat(chemin.to_string_lossy().as_ref(), 0.4, 3, 50, &resultat).unwrap();
+
+    let contenu = std::fs::read_to_string(&chemin).unwrap();
+    let lignes: Vec<&str> = contenu.lines().collect();
+    assert_eq!(lignes.len(), 3); // en-tête + 2 lignes
+    assert!(lignes[0].starts_with("date,epsilon"));
+    assert!(lignes[1].contains("0.2"));
+    assert!(lignes[1].contains(",2,1,0,"));
+    assert!(lignes[2].contains("0.4"));
+    let _ = std::fs::remove_file(&chemin);
+}
+
+#[test]
+fn test_le_balayage_renvoie_tous_les_points() {
+    let points = balayage(&[1.0, 0.0], 1, |epsilon| IsMcts {
+        epsilon_rollout: epsilon,
+        simulations: 10,
+        threads: 1,
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(points.len(), 2);
+    assert_eq!(points[0].0, 1.0);
+    assert_eq!(points[1].0, 0.0);
+    assert!((0.0..=1.0).contains(&points[0].1));
+}
+</file>
+
+<file path="crates/rummikub-ia/src/graphique.rs">
+//! Génération des graphiques du banc d'essai.
+//!
+//! La librairie utilisée est [`plotters`](https://crates.io/crates/plotters),
+//! la référence des graphiques en Rust pur : elle écrit des PNG/SVG sans
+//! serveur graphique ni navigateur, donc utilisable dans les tests et les
+//! scripts.
+
+use plotters::prelude::*;
+
+/// Trace une courbe (valeur de réglage, taux de victoire) dans un PNG
+pub fn courbe(
+    points: &[(f64, f64)],
+    titre: &str,
+    libelle_x: &str,
+    chemin: &str,
+) -> Result<(), String> {
+    let racine = BitMapBackend::new(chemin, (800, 500)).into_drawing_area();
+    racine.fill(&WHITE).map_err(|erreur| erreur.to_string())?;
+
+    let mut diagramme = ChartBuilder::on(&racine)
+        .caption(titre, ("sans-serif", 24))
+        .margin(15)
+        .x_label_area_size(45)
+        .y_label_area_size(55)
+        .build_cartesian_2d(0.0f64..1.0f64, 0.0f64..1.0f64)
+        .map_err(|erreur| erreur.to_string())?;
+
+    diagramme
+        .configure_mesh()
+        .x_desc(libelle_x)
+        .y_desc("taux de victoire")
+        .disable_x_mesh()
+        .disable_y_mesh()
+        .draw()
+        .map_err(|erreur| erreur.to_string())?;
+
+    diagramme
+        .draw_series(LineSeries::new(
+            points.iter().map(|(epsilon, taux)| (*epsilon, *taux)),
+            &RED,
+        ))
+        .map_err(|erreur| erreur.to_string())?;
+    diagramme
+        .draw_series(
+            points
+                .iter()
+                .map(|(epsilon, taux)| Circle::new((*epsilon, *taux), 5, BLUE.filled())),
+        )
+        .map_err(|erreur| erreur.to_string())?;
+
+    racine.present().map_err(|erreur| erreur.to_string())
+}
+
+/// Trace une famille de courbes (x = epsilon, une courbe colorée par beta)
+/// avec une légende, dans un PNG
+pub fn courbes_familles(
+    epsilons: &[f64],
+    betas: &[f64],
+    grille: &[(f64, f64, f64)],
+    titre: &str,
+    libelle_x: &str,
+    chemin: &str,
+) -> Result<(), String> {
+    let racine = BitMapBackend::new(chemin, (800, 500)).into_drawing_area();
+    racine.fill(&WHITE).map_err(|erreur| erreur.to_string())?;
+
+    let mut diagramme = ChartBuilder::on(&racine)
+        .caption(titre, ("sans-serif", 24))
+        .margin(15)
+        .x_label_area_size(45)
+        .y_label_area_size(55)
+        .build_cartesian_2d(0.0f64..1.0f64, 0.0f64..1.0f64)
+        .map_err(|erreur| erreur.to_string())?;
+
+    diagramme
+        .configure_mesh()
+        .x_desc(libelle_x)
+        .y_desc("taux de victoire")
+        .disable_x_mesh()
+        .disable_y_mesh()
+        .draw()
+        .map_err(|erreur| erreur.to_string())?;
+
+    let couleurs = [&RED, &BLUE, &GREEN, &MAGENTA, &CYAN, &BLACK];
+    for (index, beta) in betas.iter().enumerate() {
+        let style = couleurs[index % couleurs.len()];
+        let mut points: Vec<(f64, f64)> = grille
+            .iter()
+            .filter(|(epsilon, beta_grille, _)| *beta_grille == *beta && epsilons.contains(epsilon))
+            .map(|(epsilon, _, taux)| (*epsilon, *taux))
+            .collect();
+        points.sort_by(|a, b| a.0.total_cmp(&b.0));
+
+        let serie = diagramme
+            .draw_series(LineSeries::new(points, *style))
+            .map_err(|erreur| erreur.to_string())?;
+        serie
+            .label(format!("beta {beta}"))
+            .legend(move |(x, y)| Rectangle::new([(x - 10, y - 3), (x + 10, y + 3)], *style));
+    }
+
+    diagramme
+        .configure_series_labels()
+        .background_style(WHITE.mix(0.8))
+        .border_style(BLACK)
+        .draw()
+        .map_err(|erreur| erreur.to_string())?;
+
+    racine.present().map_err(|erreur| erreur.to_string())
+}
+
+#[cfg(test)]
+mod tests;
+</file>
+
+<file path="docs/adr/0006-elargissement-progressif.md">
+# ADR 0006 : Élargissement progressif dans l'ISMCTS
+
+- Statut : accepté
+- Date : 2026-11-02
+
+## Contexte
+
+Le facteur de branchement du Rummikub est énorme (100-500 coups légaux par
+nœud, cf. ADR 0002) : l'expansion aléatoire laissait l'arbre s'éparpiller —
+des centaines d'enfants visités une ou deux fois, estimations bruitées.
+Deux variantes étaient en balance (pistes de l'ADR 0003) : la formule
+α·N^β et le seuil de points statique. La formule a été retenue : elle dose
+dynamiquement — le coup d'investissement hors du top initial peut entrer plus
+tard, quand le nœud accumule des visites — là où un seuil statique bannirait
+pour toujours. Le seuil avait de plus un piège propre à notre jeu : les
+manipulations valent 0 point, un filtre « points ≥ X » les aurait bannies
+d'office.
+
+## Décision
+
+- Un nœud visité N fois n'admet que k = α·N^β enfants
+  (`alpha_elargissement` = 1.0, `beta_elargissement` = 0.5 par défaut) ;
+  k est toujours ≥ 1 : la première visite développe le meilleur coup.
+- L'expansion ne tire plus au hasard : elle développe **le premier coup
+  légal non développé de la liste triée** (points décroissants) — le
+  meilleur candidat restant, choix déterministe.
+- Conséquence assumée : le flux aléatoire de la recherche change (l'ordre
+  d'expansion a changé) — les scores de tournoi ne sont pas comparables à
+  ceux des versions antérieures à graine égale.
+
+## Mesures au banc (2026-11-02, 20 graines, mains tronquées à 6)
+
+> Note d'outillage : le premier balayage de β portait mal le budget — il
+> tournait à 300 simulations (défaut) au lieu des 50 annoncées, et ses
+> chiffres étaient incohérents avec la cartographie 2D. Le bug (les
+> balayages 1D ignoraient l'argument `simulations`) est corrigé ; les
+> chiffres ci-dessous sont les mesures corrigées.
+
+**β à 50 simulations** (ε au défaut) — `banc/balayage-beta.csv` :
+
+| β | 0.1 | 0.2 | 0.3 | 0.5 | 0.7 | 1.0 |
+|---|---|---|---|---|---|---|
+| Victoires | 95% | 95% | 95% | 95% | 60% | 30% |
+
+**Cartographie 2D ε × β** (42 couples) — `banc/cartographie-epsilon-beta.csv`,
+`banc/cartographie-epsilon-beta.png` : pour β ≤ 0.5, la ligne est **plate à
+95% sur tout le segment ε ∈ [0, 1]** ; β = 0.7 oscille entre 47% et 65% sans
+tendance nette en ε ; β = 1.0 est plat à 30%. La cartographie PNG trace une
+courbe par β.
+
+Conclusions :
+
+- **β est le facteur dominant, ε est secondaire** à ce budget : la carte
+  est plate en ε partout, et ne varie qu'en β.
+- **Le plateau s'étend jusqu'à β = 0.5** à 50 simulations, avec l'effondrement
+  attendu au-delà (β = 1.0, l'arbre non dosé : 30%). Le défaut est fixé à
+  **0.2**, au milieu du plateau [0.1 ; 0.5].
+- Le plafond à ~95% face à l'heuristique est probablement la limite du cadre
+  (mains tronquées : certaines parties sont perdantes quelle que soit la
+  recherche).
+- À budget plus large (plus de simulations), la frontière du plateau se
+  déplacera vraisemblablement vers le haut — re-balayer si le budget change.
+
+## Conséquences
+
+- Le même budget de simulations se concentre sur les meilleurs coups — et
+  la mesure montre que c'est le facteur dominant, devant ε et les rollouts.
+- Le risque documenté (coup génique hors top-k) reste réel aux β faibles :
+  le plateau large (0.1 aussi bon que 0.5) suggère une marge, mais la
+  frontière exacte se re-valide à chaque changement de budget.
+
+## Le parti pris de l'ordre d'admission
+
+L'élargissement admet les enfants **dans l'ordre du tri par points
+immédiats** (`coups_possibles` trie par points décroissants). C'est un parti
+pris assumé : il favorise les coups marquants sur les coups d'investissement.
+Une manipulation à 0 point n'entre que lorsque k dépasse son rang — tard, et
+uniquement sur les nœuds très visités (donc proches de la racine). Le remède
+structurel serait un prior différent — donner une valeur proxy aux
+manipulations, ou plus tard un réseau de politique — pas un réglage de α/β :
+ceux-ci ne changent que la vitesse d'ouverture du nœud, pas l'ordre dans
+lequel il s'ouvre.
+</file>
+
+<file path="banc/resultats.csv">
+date,epsilon,graines,simulations,victoires_ismcts,victoires_heuristique,non_terminees,duree_s
+1793643235,0.2,3,20,2,1,0,2.54
+1793643530,0.2,5,50,5,0,0,1.32
+1793644666,0.2,5,50,3,2,0,6.59
+1793644673,0.2,5,50,3,2,0,6.59
+1793644773,0.2,5,50,3,2,0,1.67
+1793644995,0.2,5,50,4,1,0,0.98
+1793659856,0.2,5,50,4,1,0,1.03
+</file>
+
+<file path="crates/rummikub-ia/src/main.rs">
+//! Le banc d'essai en ligne de commande : fait s'affronter l'ISMCTS et le
+//! bot heuristique sur des graines fixes, pour suivre l'évolution des IA,
+//! et trace la courbe de réglage d'epsilon.
+//!
+//! Usages :
+//! - cargo run -p rummikub-ia [graines] [simulations] [epsilon]
+//! - cargo run -p rummikub-ia graphique [graines] [simulations]
+//! - cargo run -p rummikub-ia graphique-2d [graines] [simulations]
+
+use rummikub_ia::graphique;
+use rummikub_ia::ismcts::IsMcts;
+use rummikub_ia::tournoi;
+
+const CHEMIN_CSV: &str = "banc/resultats.csv";
+
+fn main() {
+    let mut arguments: Vec<String> = std::env::args().skip(1).collect();
+
+    if arguments.first().map(|argument| argument.as_str()) == Some("graphique") {
+        arguments.remove(0);
+        if let Err(err) = mode_graphique(&arguments) {
+            eprintln!("Erreur pendant le graphique : {err}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    if arguments.first().map(|argument| argument.as_str()) == Some("graphique-2d") {
+        arguments.remove(0);
+        if let Err(err) = mode_cartographie(&arguments) {
+            eprintln!("Erreur pendant la cartographie 2D : {err}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    if let Err(err) = mode_tournoi(&arguments) {
+        eprintln!("Erreur pendant le tournoi : {err}");
+        std::process::exit(1);
+    }
+}
+
+/// Tournoi simple : ISMCTS contre le bot heuristique, résultat affiché
+/// puis ajouté au CSV du banc.
+fn mode_tournoi(arguments: &[String]) -> Result<(), String> {
+    let graines: u32 = arguments
+        .first()
+        .and_then(|argument| argument.parse().ok())
+        .unwrap_or(10);
+    let simulations: usize = arguments
+        .get(1)
+        .and_then(|argument| argument.parse().ok())
+        .unwrap_or(100);
+    let epsilon: f64 = arguments
+        .get(2)
+        .and_then(|argument| argument.parse().ok())
+        .unwrap_or(0.2);
+
+    let ismcts = IsMcts {
+        simulations,
+        epsilon_rollout: epsilon,
+        ..Default::default()
+    };
+
+    println!(
+        "Tournoi ISMCTS contre heuristique : {graines} graines, {simulations} simulations, epsilon {epsilon}"
+    );
+
+    let resultat = tournoi::tournoi(graines, &ismcts)?;
+    tournoi::enregistrer_resultat(CHEMIN_CSV, epsilon, graines, simulations, &resultat)?;
+
+    println!(
+        "ISMCTS {} — {} heuristique ({} non terminées) en {:.1}s — taux ISMCTS : {:.0}%",
+        resultat.victoires_ismcts,
+        resultat.victoires_heuristique,
+        resultat.non_terminees,
+        resultat.duree.as_secs_f64(),
+        resultat.taux_ismcts() * 100.0
+    );
+    println!("Résultat ajouté à {CHEMIN_CSV}");
+    Ok(())
+}
+
+/// Balayages d'epsilon et de beta : courbes (PNG) et tableaux CSV.
+/// L'epsilon est balayé au réglage d'élargissement par défaut, et beta est
+/// balayé à epsilon par défaut — les deux sur les mêmes graines.
+fn mode_graphique(arguments: &[String]) -> Result<(), String> {
+    let graines: u32 = arguments
+        .first()
+        .and_then(|argument| argument.parse().ok())
+        .unwrap_or(5);
+    let simulations: usize = arguments
+        .get(1)
+        .and_then(|argument| argument.parse().ok())
+        .unwrap_or(30);
+
+    let epsilons = [0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0];
+    println!("Balayage d'epsilon : {graines} graines, {simulations} simulations par décision...");
+    let points_epsilon = tournoi::balayage(&epsilons, graines, |epsilon| IsMcts {
+        epsilon_rollout: epsilon,
+        simulations,
+        ..Default::default()
+    })?;
+    afficher_points("epsilon", &points_epsilon);
+    ecrire_csv("banc/balayage-epsilon.csv", "epsilon", &points_epsilon)?;
+    graphique::courbe(
+        &points_epsilon,
+        "Taux de victoire de l'ISMCTS selon epsilon",
+        "epsilon (probabilité de coup aléatoire en rollout)",
+        "banc/graphique-epsilon.png",
+    )?;
+    println!("Graphique écrit dans banc/graphique-epsilon.png");
+
+    let betas = [0.1, 0.2, 0.3, 0.5, 0.7, 1.0];
+    println!(
+        "Balayage de beta (élargissement progressif, epsilon au défaut) : {graines} graines..."
+    );
+    let points_beta = tournoi::balayage(&betas, graines, |beta| IsMcts {
+        beta_elargissement: beta,
+        simulations,
+        ..Default::default()
+    })?;
+    afficher_points("beta", &points_beta);
+    ecrire_csv("banc/balayage-beta.csv", "beta", &points_beta)?;
+    graphique::courbe(
+        &points_beta,
+        "Taux de victoire de l'ISMCTS selon beta",
+        "beta (élargissement progressif k = α·N^β)",
+        "banc/graphique-beta.png",
+    )?;
+    println!("Graphique écrit dans banc/graphique-beta.png");
+    Ok(())
+}
+
+/// Affiche les points d'un balayage et la meilleure valeur
+fn afficher_points(nom: &str, points: &[(f64, f64)]) {
+    for (valeur, taux) in points {
+        println!("{nom} {valeur} → {:.0}% de victoires", taux * 100.0);
+    }
+    let meilleur = points
+        .iter()
+        .copied()
+        .max_by(|a, b| a.1.total_cmp(&b.1))
+        .expect("au moins un point de balayage");
+    println!(
+        "Meilleur {nom} : {:.2} ({:.0}% de victoires)",
+        meilleur.0,
+        meilleur.1 * 100.0
+    );
+}
+
+/// Écrit un CSV à deux colonnes (valeur, taux) pour un balayage
+fn ecrire_csv(chemin: &str, entete: &str, points: &[(f64, f64)]) -> Result<(), String> {
+    let mut csv = format!("{entete},taux_ismcts\n");
+    for (valeur, taux) in points {
+        csv.push_str(&format!("{valeur},{taux}\n"));
+    }
+    std::fs::create_dir_all("banc").map_err(|erreur| erreur.to_string())?;
+    std::fs::write(chemin, csv).map_err(|erreur| erreur.to_string())
+}
+
+/// Cartographie 2D : les couples (epsilon, beta) croisés, affichés en
+/// matrice, archivés en CSV et tracés en courbes familles (PNG)
+fn mode_cartographie(arguments: &[String]) -> Result<(), String> {
+    let graines: u32 = arguments
+        .first()
+        .and_then(|argument| argument.parse().ok())
+        .unwrap_or(20);
+    let simulations: usize = arguments
+        .get(1)
+        .and_then(|argument| argument.parse().ok())
+        .unwrap_or(50);
+
+    let epsilons = [0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0];
+    let betas = [0.1, 0.2, 0.3, 0.5, 0.7, 1.0];
+    println!(
+        "Cartographie 2D : {} epsilons × {} betas, {graines} graines, {simulations} simulations...",
+        epsilons.len(),
+        betas.len()
+    );
+
+    let grille = tournoi::balayage_2d(&epsilons, &betas, graines, |epsilon, beta| IsMcts {
+        epsilon_rollout: epsilon,
+        beta_elargissement: beta,
+        simulations,
+        ..Default::default()
+    })?;
+
+    // Matrice lisible : une ligne par beta, une colonne par epsilon
+    println!(
+        "{: >8} | {}",
+        "",
+        epsilons
+            .iter()
+            .map(|epsilon| format!("ε={epsilon:<4}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    for beta in &betas {
+        let ligne: Vec<String> = epsilons
+            .iter()
+            .map(|epsilon| {
+                let (_, _, taux) = grille
+                    .iter()
+                    .find(|(e, b, _)| *e == *epsilon && *b == *beta)
+                    .expect("chaque couple est joué");
+                format!("{:.0}%     ", taux * 100.0)
+            })
+            .collect();
+        println!("{: >8} | {}", format!("β={beta}"), ligne.join(" "));
+    }
+
+    let meilleure = grille
+        .iter()
+        .copied()
+        .max_by(|a, b| a.2.total_cmp(&b.2))
+        .expect("la grille n'est pas vide");
+    println!(
+        "Meilleur couple : epsilon {:.1}, beta {:.1} ({:.0}% de victoires)",
+        meilleure.0,
+        meilleure.1,
+        meilleure.2 * 100.0
+    );
+
+    // CSV à plat : epsilon,beta,taux
+    let mut csv = String::from("epsilon,beta,taux_ismcts\n");
+    for (epsilon, beta, taux) in &grille {
+        csv.push_str(&format!("{epsilon},{beta},{taux}\n"));
+    }
+    std::fs::create_dir_all("banc").map_err(|erreur| erreur.to_string())?;
+    std::fs::write("banc/cartographie-epsilon-beta.csv", csv)
+        .map_err(|erreur| erreur.to_string())?;
+
+    graphique::courbes_familles(
+        &epsilons,
+        &betas,
+        &grille,
+        "Taux de victoire de l'ISMCTS : une courbe par beta",
+        "epsilon (probabilité de coup aléatoire en rollout)",
+        "banc/cartographie-epsilon-beta.png",
+    )?;
+    println!("Graphique écrit dans banc/cartographie-epsilon-beta.png");
+    Ok(())
+}
+</file>
+
+<file path="crates/rummikub-ia/src/tournoi.rs">
+//! Le banc d'essai : des tournois à graines fixes pour mesurer les IA.
+//! Chaque amélioration de l'ISMCTS doit se justifier ici, victoires à
+//! l'appui.
+
+use crate::bot_heuristique;
+use crate::ismcts::IsMcts;
+use rummikub_core::partie::Partie;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::time::{Duration, Instant, SystemTime};
+
+/// Résumé d'un tournoi
+#[derive(Debug, Clone, PartialEq)]
+pub struct Resultat {
+    /// Victoires du joueur ISMCTS (joueur 0)
+    pub victoires_ismcts: u32,
+    /// Victoires du joueur heuristique (joueur 1)
+    pub victoires_heuristique: u32,
+    /// Parties non terminées dans la limite de tours
+    pub non_terminees: u32,
+    /// Durée totale du tournoi
+    pub duree: Duration,
+}
+
+impl Resultat {
+    /// Taux de victoire de l'ISMCTS sur les parties terminées
+    pub fn taux_ismcts(&self) -> f64 {
+        let terminees = (self.victoires_ismcts + self.victoires_heuristique) as f64;
+        if terminees == 0.0 {
+            return 0.0;
+        }
+        self.victoires_ismcts as f64 / terminees
+    }
+}
+
+/// Fait s'affronter l'ISMCTS (joueur 0) contre le bot heuristique (joueur 1)
+/// sur les graines `1..=nb_graines`. Même graine → mêmes donnes pour les deux
+/// joueurs : la comparaison est équitable. Les mains sont raccourcies à 6
+/// tuiles pour garder chaque partie rapide ; ce cadre de mesure doit rester
+/// stable pour comparer les versions entre elles.
+pub fn tournoi(nb_graines: u32, ismcts: &IsMcts) -> Result<Resultat, String> {
+    let debut = Instant::now();
+    let mut resultat = Resultat {
+        victoires_ismcts: 0,
+        victoires_heuristique: 0,
+        non_terminees: 0,
+        duree: Duration::ZERO,
+    };
+
+    for graine in 1..=nb_graines {
+        let mut partie = Partie::nouvelle_avec_graine(
+            vec!["ISMCTS".to_string(), "Heuristique".to_string()],
+            graine as u64,
+        )?;
+        partie.joueurs[0].main.truncate(6);
+        partie.joueurs[1].main.truncate(6);
+
+        let mut tours = 0;
+        while partie.gagnant().is_none() && tours < 300 {
+            if partie.index_joueur_courant == 0 {
+                ismcts.jouer_tour(&mut partie)?;
+            } else {
+                bot_heuristique::jouer_tour(&mut partie)?;
+            }
+            tours += 1;
+        }
+
+        match partie.gagnant() {
+            Some(0) => resultat.victoires_ismcts += 1,
+            Some(1) => resultat.victoires_heuristique += 1,
+            _ => resultat.non_terminees += 1,
+        }
+    }
+
+    resultat.duree = debut.elapsed();
+    Ok(resultat)
+}
+
+/// Balaye des valeurs de réglage : pour chaque valeur, l'ISMCTS construit
+/// par `fabriquer` joue le même tournoi (mêmes graines — comparaison
+/// équitable) et la fonction retourne les points (valeur, taux de victoire
+/// de l'ISMCTS).
+pub fn balayage(
+    valeurs: &[f64],
+    nb_graines: u32,
+    fabriquer: impl Fn(f64) -> IsMcts,
+) -> Result<Vec<(f64, f64)>, String> {
+    valeurs
+        .iter()
+        .map(|&valeur| {
+            let resultat = tournoi(nb_graines, &fabriquer(valeur))?;
+            Ok((valeur, resultat.taux_ismcts()))
+        })
+        .collect()
+}
+
+/// Balaye en 2D les couples (epsilon, beta) : chaque couple joue le même
+/// tournoi (mêmes graines) et la fonction retourne la grille à plat
+/// (epsilon, beta, taux de victoire de l'ISMCTS).
+pub fn balayage_2d(
+    epsilons: &[f64],
+    betas: &[f64],
+    nb_graines: u32,
+    fabriquer: impl Fn(f64, f64) -> IsMcts,
+) -> Result<Vec<(f64, f64, f64)>, String> {
+    epsilons
+        .iter()
+        .flat_map(|&epsilon| {
+            betas
+                .iter()
+                .map(|&beta| {
+                    let resultat = tournoi(nb_graines, &fabriquer(epsilon, beta))?;
+                    Ok((epsilon, beta, resultat.taux_ismcts()))
+                })
+                .collect::<Vec<Result<(f64, f64, f64), String>>>()
+        })
+        .collect()
+}
+
+/// Enregistre une ligne de résultats dans le CSV du banc (créé avec son
+/// en-tête au besoin), pour suivre l'évolution des IA au fil des versions.
+/// L'horodatage est en secondes depuis l'epoch (format CSV, sans dépendance).
+pub fn enregistrer_resultat(
+    chemin: &str,
+    epsilon: f64,
+    nb_graines: u32,
+    simulations: usize,
+    resultat: &Resultat,
+) -> Result<(), String> {
+    if let Some(dossier) = std::path::Path::new(chemin).parent()
+        && !dossier.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(dossier).map_err(|erreur| erreur.to_string())?;
+    }
+
+    let nouveau_fichier = !std::path::Path::new(chemin).exists();
+    let mut fichier = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(chemin)
+        .map_err(|erreur| erreur.to_string())?;
+
+    if nouveau_fichier {
+        writeln!(
+            fichier,
+            "date,epsilon,graines,simulations,victoires_ismcts,victoires_heuristique,non_terminees,duree_s"
+        )
+        .map_err(|erreur| erreur.to_string())?;
+    }
+
+    let horodatage = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_err(|erreur| erreur.to_string())?
+        .as_secs();
+
+    writeln!(
+        fichier,
+        "{horodatage},{epsilon},{nb_graines},{simulations},{},{},{},{:.2}",
+        resultat.victoires_ismcts,
+        resultat.victoires_heuristique,
+        resultat.non_terminees,
+        resultat.duree.as_secs_f64()
+    )
+    .map_err(|erreur| erreur.to_string())
+}
+
+#[cfg(test)]
+mod tests;
+</file>
+
+<file path="crates/rummikub-ia/Cargo.toml">
+[package]
+name = "rummikub-ia"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+plotters = "0.3.7"
+rand = "0.10.3"
+rayon = "1.12.0"
+rummikub-core = { path = "../rummikub-core" }
+</file>
+
+<file path="crates/rummikub-core/src/partie.rs">
+use crate::combinaison::Combinaison;
+use crate::joueur::Joueur;
+use crate::plateau::Plateau;
+use crate::tuile::{
+    BitsetTuiles, Tuile, generer_pioche, melanger_pioche, melanger_pioche_avec_graine,
+};
+
+/// État du tour en cours dans la partie
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Tour {
+    /// Aucun tour ouvert : le joueur courant doit ouvrir son tour (start_turn)
+    Repos,
+    /// Tour ouvert : l'état du plateau et la main du joueur courant au début
+    /// du tour sont conservés pour permettre une annulation (cancel_turn)
+    Ouvert {
+        plateau_debut: Plateau,
+        main_debut: Vec<Tuile>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct Partie {
+    pub joueurs: Vec<Joueur>,
+    pub index_joueur_courant: usize,
+    pub plateau: Plateau,
+    pub pioche: Vec<Tuile>, // Pioche
+    /// État du tour en cours : un tour ouvert conserve le plateau et la main
+    /// du début de tour, pour annuler une manipulation illégale (annuler_tour)
+    pub tour: Tour,
+    /// Nombre de tours consécutifs sans la moindre pose — sert à détecter
+    /// la fin de partie par blocage (sac vide)
+    pub tours_sans_pose: usize,
+}
+
+/// Vue d'une partie telle qu'un joueur donné est autorisé à la voir : le
+/// plateau, les comptes et l'état du tour sont publics, seule la main du
+/// joueur concerné est visible en détail.
+#[derive(Debug, Clone)]
+pub struct VuePartie {
+    /// Le joueur pour qui la vue est construite
+    pub id_joueur: usize,
+    pub index_joueur_courant: usize,
+    pub plateau: Plateau,
+    /// Le contenu de la pioche reste secret, seul son nombre est public
+    pub taille_pioche: usize,
+    pub gagnant: Option<usize>,
+    /// Tours consécutifs sans pose : la proximité du blocage est publique
+    pub tours_sans_pose: usize,
+    pub joueurs: Vec<VueJoueur>,
+}
+
+/// Un joueur vu depuis une partie : le contenu de sa main n'apparaît que
+/// dans la vue du joueur lui-même
+#[derive(Debug, Clone)]
+pub struct VueJoueur {
+    pub id: usize,
+    pub nom: String,
+    pub a_fait_pose_initiale: bool,
+    pub taille_main: usize,
+    /// Présente uniquement dans la vue du joueur lui-même
+    pub main: Option<Vec<Tuile>>,
+}
+
+impl Partie {
+    /// Nombre de tuiles distribuées à chaque joueur en début de partie
+    pub const TUILES_PAR_JOUEUR: usize = 14;
+
+    /// Prépare une partie : sac mélangé aléatoirement puis 14 tuiles
+    /// distribuées à chaque joueur. Le Rummikub se joue de 2 à 4 joueurs.
+    /// Pour un mélange déterministe (rejeu à l'identique), voir
+    /// nouvelle_avec_graine.
+    pub fn nouvelle(noms: Vec<String>) -> Result<Self, String> {
+        Self::nouvelle_avec_melange(noms, melanger_pioche)
+    }
+
+    /// Comme nouvelle, mais le mélange est déterministe : la même graine donne
+    /// toujours la même distribution. Utile pour rejouer une partie à
+    /// l'identique (IA, tests, réseau).
+    pub fn nouvelle_avec_graine(noms: Vec<String>, graine: u64) -> Result<Self, String> {
+        Self::nouvelle_avec_melange(noms, |pioche| melanger_pioche_avec_graine(pioche, graine))
+    }
+
+    fn nouvelle_avec_melange(
+        noms: Vec<String>,
+        melanger: impl FnOnce(&mut [Tuile]),
+    ) -> Result<Self, String> {
+        if !(2..=4).contains(&noms.len()) {
+            return Err(format!(
+                "Le jeu se joue de 2 à 4 joueurs (reçu : {}).",
+                noms.len()
+            ));
+        }
+
+        let mut pioche = generer_pioche();
+        melanger(&mut pioche);
+
+        let mut joueurs = Vec::with_capacity(noms.len());
+        for (id, nom) in noms.into_iter().enumerate() {
+            let main: Vec<Tuile> = pioche.drain(..Self::TUILES_PAR_JOUEUR).collect();
+            joueurs.push(Joueur::nouveau(id, nom, main));
+        }
+
+        Ok(Self {
+            joueurs,
+            index_joueur_courant: 0,
+            plateau: Plateau::default(),
+            pioche,
+            tour: Tour::Repos,
+            tours_sans_pose: 0,
+        })
+    }
+
+    pub fn joueur_courant(&self) -> &Joueur {
+        &self.joueurs[self.index_joueur_courant]
+    }
+
+    pub fn joueur_courant_mut(&mut self) -> &mut Joueur {
+        &mut self.joueurs[self.index_joueur_courant]
+    }
+
+    /// Le joueur courant ne pose rien : il pioche une tuile et son tour se
+    /// termine immédiatement (règle officielle). Si le sac est vide, il passe
+    /// simplement son tour et la méthode retourne None.
+    ///
+    /// Erreur si aucun tour n'est ouvert (ouvrir_tour) ou si le joueur a déjà
+    /// posé ou manipulé pendant ce tour.
+    pub fn piocher(&mut self) -> Result<Option<Tuile>, String> {
+        if !self.tour_ouvert() {
+            return Err(
+                "Aucun tour en cours : appelez ouvrir_tour pour ouvrir un tour.".to_string(),
+            );
+        }
+        if self.a_deja_joue_ce_tour() {
+            return Err(
+                "Le joueur a déjà joué pendant ce tour : impossible de piocher.".to_string(),
+            );
+        }
+
+        let tuile = self.pioche.pop();
+        if let Some(tuile) = tuile {
+            self.joueur_courant_mut().main.push(tuile);
+        }
+        // Piocher (ou passer à sac vide) met fin au tour
+        self.fin_de_tour();
+        Ok(tuile)
+    }
+
+    /// Ouvre le tour du joueur courant : le plateau et sa main sont sauvegardés
+    /// pour permettre d'annuler le tour (annuler_tour).
+    pub fn ouvrir_tour(&mut self) {
+        self.tour = Tour::Ouvert {
+            plateau_debut: self.plateau.clone(),
+            main_debut: self.joueur_courant().main.clone(),
+        };
+    }
+
+    /// Annule le tour en cours : restaure le plateau et la main du début de
+    /// tour. Sans tour ouvert, l'appel ne fait rien.
+    pub fn annuler_tour(&mut self) {
+        if let Tour::Ouvert {
+            plateau_debut,
+            main_debut,
+        } = std::mem::replace(&mut self.tour, Tour::Repos)
+        {
+            self.plateau = plateau_debut;
+            self.joueur_courant_mut().main = main_debut;
+        }
+    }
+
+    /// Le joueur courant pose des combinaisons construites uniquement à partir de
+    /// sa main. Avant la pose initiale, l'exigence des 30 points s'applique
+    /// automatiquement.
+    pub fn poser_combinaisons(&mut self, proposed_melds: Vec<Combinaison>) -> Result<u32, String> {
+        if !self.tour_ouvert() {
+            return Err(
+                "Aucun tour en cours : appelez ouvrir_tour pour ouvrir un tour.".to_string(),
+            );
+        }
+
+        let joueur = self.joueur_courant_mut();
+        let points = if joueur.a_fait_pose_initiale {
+            joueur.poser_combinaisons(&proposed_melds)?
+        } else {
+            joueur.jouer_pose_initiale(&proposed_melds)?
+        };
+
+        for combinaison in proposed_melds {
+            self.plateau.placer_combinaison(combinaison);
+        }
+        Ok(points)
+    }
+
+    /// Le joueur courant soumet le nouvel état complet du plateau (manipulation
+    /// des combinaisons déjà posées et/ou ajout depuis la main).
+    ///
+    /// Règles vérifiées :
+    /// - interdit avant la pose initiale du joueur ;
+    /// - chaque combinaison du nouvel état est valide ;
+    /// - aucune tuile ne disparaît du plateau ;
+    /// - chaque nouvelle tuile provient de la main du joueur ;
+    /// - aucune tuile n'est utilisée deux fois.
+    pub fn soumettre_plateau(&mut self, combinaisons: Vec<Combinaison>) -> Result<(), String> {
+        if !self.tour_ouvert() {
+            return Err(
+                "Aucun tour en cours : appelez ouvrir_tour pour ouvrir un tour.".to_string(),
+            );
+        }
+        if !self.joueur_courant().a_fait_pose_initiale {
+            return Err("Impossible de manipuler le plateau avant la pose initiale.".to_string());
+        }
+
+        for (i, combinaison) in combinaisons.iter().enumerate() {
+            if !combinaison.est_valide() {
+                return Err(format!("La combinaison n°{} est invalide.", i + 1));
+            }
+        }
+
+        let mut ids_plateau = self.plateau.ids_tuiles();
+        let mut ids_main =
+            BitsetTuiles::depuis_ids(self.joueur_courant().main.iter().map(|tuile| tuile.id));
+        let mut ids_deja_vus = BitsetTuiles::default();
+
+        for combinaison in &combinaisons {
+            for tuile in &combinaison.Tuiles {
+                if !ids_deja_vus.inserer_si_absent(tuile.id) {
+                    return Err(format!(
+                        "La tuile ID {} apparaît deux fois sur le plateau.",
+                        tuile.id
+                    ));
+                }
+                // La tuile était-elle déjà posée sur le plateau ?
+                if ids_plateau.retirer_si_present(tuile.id) {
+                    continue;
+                }
+                // Sinon, elle doit venir de la main du joueur
+                if !ids_main.retirer_si_present(tuile.id) {
+                    return Err(format!(
+                        "La tuile ID {} ne provient ni du plateau ni de la main du joueur.",
+                        tuile.id
+                    ));
+                }
+            }
+        }
+
+        if !ids_plateau.est_vide() {
+            return Err("Des tuiles du plateau ont disparu : manipulation interdite.".to_string());
+        }
+
+        // Application : nouveau plateau, puis retrait de la main des tuiles
+        // nouvellement posées (ids_main ne contient plus que les tuiles non utilisées)
+        self.plateau.remplacer_combinaisons(combinaisons);
+        self.joueur_courant_mut()
+            .main
+            .retain(|tuile| ids_main.contient(tuile.id));
+        Ok(())
+    }
+
+    /// Clôture le tour du joueur courant et passe au suivant.
+    ///
+    /// Erreurs :
+    /// - aucun tour ouvert (ouvrir_tour) ;
+    /// - plateau invalide : le tour est alors annulé (annuler_tour) ;
+    /// - le joueur n'a rien joué alors que le sac contient encore des tuiles :
+    ///   il doit jouer ou piocher, la passe n'étant permise qu'à sac vide.
+    pub fn terminer_tour(&mut self) -> Result<(), String> {
+        if !self.tour_ouvert() {
+            return Err(
+                "Aucun tour en cours : appelez ouvrir_tour pour ouvrir un tour.".to_string(),
+            );
+        }
+        if !self.plateau.est_valide() {
+            self.annuler_tour();
+            return Err("Plateau invalide en fin de tour : tour annulé.".to_string());
+        }
+        if !self.a_deja_joue_ce_tour() && !self.pioche.is_empty() {
+            return Err("Le joueur doit poser des tuiles ou piocher : tour refusé.".to_string());
+        }
+
+        self.fin_de_tour();
+        Ok(())
+    }
+
+    /// Un tour est-il actuellement ouvert ?
+    fn tour_ouvert(&self) -> bool {
+        matches!(self.tour, Tour::Ouvert { .. })
+    }
+
+    /// Le joueur a-t-il déjà posé ou manipulé pendant le tour en cours ?
+    /// (public : les IA en ont besoin pour savoir si terminer le tour est
+    /// une option légale)
+    pub fn a_deja_joue_ce_tour(&self) -> bool {
+        match &self.tour {
+            Tour::Ouvert { plateau_debut, .. } => *plateau_debut != self.plateau,
+            Tour::Repos => false,
+        }
+    }
+
+    /// Ferme le tour (Tour::Repos) et passe au joueur suivant
+    fn fin_de_tour(&mut self) {
+        // Comptabilise les tours sans pose : la détection du blocage (sac
+        // vide) en dépend
+        if !self.a_deja_joue_ce_tour() {
+            self.tours_sans_pose += 1;
+        } else {
+            self.tours_sans_pose = 0;
+        }
+
+        self.tour = Tour::Repos;
+        self.index_joueur_courant = (self.index_joueur_courant + 1) % self.joueurs.len();
+    }
+
+    /// Identifiant du joueur gagnant, s'il y en a un :
+    /// - main vide : victoire immédiate ;
+    /// - partie bloquée (sac vide et un tour complet sans pose) : la valeur
+    ///   de main la plus faible l'emporte, égalité = partie nulle ;
+    /// - sinon : la partie continue.
+    pub fn gagnant(&self) -> Option<usize> {
+        if let Some(joueur) = self.joueurs.iter().find(|joueur| joueur.main.is_empty()) {
+            return Some(joueur.id);
+        }
+        if !self.est_terminee() {
+            return None;
+        }
+
+        let valeurs: Vec<(usize, u32)> = self
+            .joueurs
+            .iter()
+            .map(|joueur| {
+                (
+                    joueur.id,
+                    joueur
+                        .main
+                        .iter()
+                        .map(|t| t.valeur_points() as u32)
+                        .sum::<u32>(),
+                )
+            })
+            .collect();
+        let plus_faible = valeurs.iter().map(|(_, valeur)| *valeur).min()?;
+        let gagnants: Vec<usize> = valeurs
+            .iter()
+            .filter(|(_, valeur)| *valeur == plus_faible)
+            .map(|(id, _)| *id)
+            .collect();
+        if gagnants.len() == 1 {
+            gagnants.into_iter().next()
+        } else {
+            None
+        }
+    }
+
+    /// La partie est-elle bloquée : sac vide et un tour complet sans la
+    /// moindre pose ? (règle officielle de fin de partie)
+    pub fn est_terminee(&self) -> bool {
+        self.pioche.is_empty() && self.tours_sans_pose >= self.joueurs.len()
+    }
+
+    /// Construit la vue de la partie pour le joueur identifié par `id_joueur`.
+    /// Fonction pure : la partie n'est pas modifiée, et les mains des autres
+    /// joueurs sont remplacées par leur seule taille.
+    pub fn vue_pour(&self, id_joueur: usize) -> Result<VuePartie, String> {
+        let id_vue = self
+            .joueurs
+            .iter()
+            .find(|joueur| joueur.id == id_joueur)
+            .ok_or_else(|| format!("Aucun joueur avec l'identifiant {}.", id_joueur))?
+            .id;
+
+        let joueurs = self
+            .joueurs
+            .iter()
+            .map(|joueur| VueJoueur {
+                id: joueur.id,
+                nom: joueur.nom.clone(),
+                a_fait_pose_initiale: joueur.a_fait_pose_initiale,
+                taille_main: joueur.main.len(),
+                main: (joueur.id == id_vue).then(|| joueur.main.clone()),
+            })
+            .collect();
+
+        Ok(VuePartie {
+            id_joueur: id_vue,
+            index_joueur_courant: self.index_joueur_courant,
+            plateau: self.plateau.clone(),
+            taille_pioche: self.pioche.len(),
+            gagnant: self.gagnant(),
+            tours_sans_pose: self.tours_sans_pose,
+            joueurs,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests;
+</file>
+
+<file path="crates/rummikub-ia/src/ismcts.rs">
+//! ISMCTS : Information Set Monte Carlo Tree Search.
+//!
+//! Le MCTS classique construit un arbre d'états. Impossible ici : la main
+//! des adversaires et le contenu de la pioche sont cachés, et un arbre bâti
+//! sur l'état réel « verrait » ce que le joueur ne peut pas voir.
+//!
+//! L'ISMCTS résout ça en deux temps :
+//! 1. **Déterminisation** — chaque simulation part d'un tirage cohérent des
+//!    informations cachées : les tuiles inconnues (tout sauf notre main et
+//!    le plateau) sont mélangées, chaque adversaire reçoit autant de tuiles
+//!    que sa main en contient vraiment, le reste devient la pioche.
+//! 2. **Arbre partagé** — les statistiques s'accumulent dans un arbre unique
+//!    indexé par la séquence de coups (pas par l'état exact) : les nombreux
+//!    tirages votent pour les coups bons « en moyenne », au lieu des coups
+//!    bons contre une main exacte devinée.
+//!
+//! Mécanique d'une simulation : déterminiser → descendre l'arbre en choisissant
+//! les enfants prometteurs (UCB1) → développer un nouveau coup → dérouler la
+//! partie au hasard (rollout) → propager les récompenses dans les nœuds
+//! traversés.
+//!
+//! Simplifications assumées de cette version (détails dans l'ADR 0003) :
+//! - une seule déterminisation par simulation, du point de vue du joueur qui
+//!   décide ;
+//! - rollouts ε-greedy : le coup heuristique avec probabilité 1−ε, un coup
+//!   au hasard sinon ;
+//! - récompenses selon le score officiel en fin de partie (victoire + valeur
+//!   des mains adverses), 0 pour tous si la profondeur maximale est atteinte
+//!   sans gagnant ;
+//! - parallélisation à la racine : un arbre par thread, fusionnés à la fin.
+
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+use rand::{RngExt, SeedableRng};
+use rayon::prelude::*;
+use rummikub_core::coups::{Coup, coups_possibles, jouer_coup};
+use rummikub_core::partie::{Partie, Tour};
+use rummikub_core::tuile::{BitsetTuiles, Tuile, generer_pioche};
+
+/// En dessous de ce nombre de simulations par thread, la coordination de
+/// rayon finirait par coûter plus que le travail (ADR 0005). Valeur basse :
+/// la mesure a montré que la parallélisation reste rentable même à 6
+/// simulations par thread (50 simulations : 1,3 s parallèle contre 6,6 s
+/// séquentiel).
+const SIMULATIONS_MIN_PAR_THREAD: usize = 4;
+
+/// Réglages de la recherche. La décision est reproductible : même état +
+/// même graine + même nombre de threads → même coup choisi.
+#[derive(Debug, Clone)]
+pub struct IsMcts {
+    /// Nombre de simulations : une déterminisation et une descente chacune
+    pub simulations: usize,
+    /// Profondeur maximale d'un rollout
+    pub profondeur_rollout: usize,
+    /// Constante d'exploration UCB (sqrt(2) est le choix classique)
+    pub exploration: f64,
+    /// Pendant un rollout : probabilité de jouer un coup au hasard (le coup
+    /// heuristique est joué avec probabilité 1−ε). 1.0 = rollouts aléatoires,
+    /// 0.0 = rollouts entièrement heuristiques
+    pub epsilon_rollout: f64,
+    /// Élargissement progressif : α dans la formule k = α·N^β qui plafonne le
+    /// nombre d'enfants d'un nœud visité N fois (1.0 = classique)
+    pub alpha_elargissement: f64,
+    /// Élargissement progressif : β dans k = α·N^β. Le balayage au banc
+    /// (20 graines × 50 simulations) donne 95% de victoires pour β ≤ 0.3
+    /// et un effondrement au-delà (55% à 0.5, 0% à 1.0) : défaut 0.2,
+    /// au milieu du plateau (ADR 0006)
+    pub beta_elargissement: f64,
+    /// Nombre de threads pour la parallélisation à la racine ; 0 = auto
+    pub threads: usize,
+    /// Graine du générateur aléatoire
+    pub graine: u64,
+}
+
+impl Default for IsMcts {
+    fn default() -> Self {
+        Self {
+            simulations: 300,
+            profondeur_rollout: 30,
+            exploration: std::f64::consts::SQRT_2,
+            epsilon_rollout: 0.2,
+            alpha_elargissement: 1.0,
+            beta_elargissement: 0.2,
+            threads: 0,
+            graine: 0,
+        }
+    }
+}
+
+impl IsMcts {
+    /// Choisit le coup du joueur courant (tour ouvert requis) : l'enfant de la
+    /// racine le plus visité après les simulations — le « coup robuste »,
+    /// celui qui s'est révélé bon sur le plus de tirages différents.
+    pub fn choisir_coup(&self, partie: &Partie) -> Result<Option<Coup>, String> {
+        if !matches!(partie.tour, Tour::Ouvert { .. }) {
+            return Err(
+                "Aucun tour en cours : appelez ouvrir_tour pour ouvrir un tour.".to_string(),
+            );
+        }
+
+        // Parallélisation à la racine : chaque thread construit son propre
+        // arbre avec sa graine dérivée, puis les statistiques sont fusionnées
+        let threads = if self.threads == 0 {
+            // Ne paralléliser que si chaque thread aurait assez à faire
+            let coeurs = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1);
+            (coeurs.min(self.simulations / SIMULATIONS_MIN_PAR_THREAD)).max(1)
+        } else {
+            self.threads
+        };
+        let par_thread = self.simulations / threads;
+        let reste = self.simulations % threads;
+
+        let branches: Vec<Noeud> = (0..threads)
+            .into_par_iter()
+            .map(|index| {
+                let simulations = par_thread + usize::from(index < reste);
+                let mut rng = StdRng::seed_from_u64(self.graine.wrapping_add(index as u64));
+                let mut racine = Noeud::default();
+                for _ in 0..simulations {
+                    // 1. Déterminisation : une devinette cohérente des infos cachées
+                    let mut etat = determiniser(partie, &mut rng);
+                    // 2. Descente + expansion + rollout + propagation, sur cet état-là
+                    descente(&mut racine, &mut etat, &mut rng, self)?;
+                }
+                Ok(racine)
+            })
+            .collect::<Result<Vec<Noeud>, String>>()?;
+
+        let mut racine = Noeud::default();
+        for branche in branches {
+            racine.fusionner(branche);
+        }
+
+        Ok(racine
+            .enfants
+            .iter()
+            .max_by_key(|enfant| enfant.noeud.visites)
+            .map(|enfant| enfant.coup.clone()))
+    }
+
+    /// Joue le tour complet du joueur courant : la recherche est relancée
+    /// après chaque pose ou manipulation (un tour peut comporter plusieurs
+    /// coups), et un coup Terminer ou Piocher le clôt.
+    pub fn jouer_tour(&self, partie: &mut Partie) -> Result<(), String> {
+        partie.ouvrir_tour();
+        loop {
+            let coup = self
+                .choisir_coup(partie)?
+                .expect("Piocher est toujours un coup disponible");
+            jouer_coup(partie, coup)?;
+            if !matches!(partie.tour, Tour::Ouvert { .. }) {
+                return Ok(());
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct Noeud {
+    /// Nombre de passages dans ce nœud
+    visites: u32,
+    /// Somme des récompenses du joueur ayant joué le coup menant à ce nœud
+    somme: f64,
+    enfants: Vec<Enfant>,
+}
+
+struct Enfant {
+    coup: Coup,
+    noeud: Box<Noeud>,
+}
+
+impl Noeud {
+    /// Le coup a-t-il déjà un enfant dans l'arbre ?
+    fn possede(&self, coup: &Coup) -> bool {
+        self.enfants.iter().any(|enfant| &enfant.coup == coup)
+    }
+
+    /// Fusionne les statistiques d'un autre arbre (parallélisation à la racine)
+    fn fusionner(&mut self, autre: Noeud) {
+        self.visites += autre.visites;
+        self.somme += autre.somme;
+        for enfant in autre.enfants {
+            match self.enfants.iter_mut().find(|e| e.coup == enfant.coup) {
+                Some(existant) => existant.noeud.fusionner(*enfant.noeud),
+                None => self.enfants.push(enfant),
+            }
+        }
+    }
+}
+
+/// Un tour vient-il de se terminer ? On ouvre alors celui du joueur suivant.
+fn ouvrir_si_necessaire(etat: &mut Partie) {
+    if !matches!(etat.tour, Tour::Ouvert { .. }) {
+        etat.ouvrir_tour();
+    }
+}
+
+/// Remplace les informations cachées par un tirage cohérent avec ce que le
+/// joueur courant connaît : sa main et le plateau sont les siens ; les tuiles
+/// inconnues sont mélangées puis distribuées — chaque adversaire reçoit
+/// autant de tuiles que sa main en contient, le reste devient la pioche.
+fn determiniser(partie: &Partie, rng: &mut StdRng) -> Partie {
+    let mut etat = partie.clone();
+    let id_vue = etat.index_joueur_courant;
+
+    // Tuiles connues : notre main et le plateau. Le sac est toujours le même
+    // et l'identifiant détermine le type d'une tuile : on repart donc du sac
+    // complet et on retire les tuiles connues pour obtenir l'ensemble caché.
+    let mut connues = BitsetTuiles::depuis_ids(
+        etat.joueurs
+            .iter()
+            .find(|joueur| joueur.id == id_vue)
+            .expect("le joueur courant existe")
+            .main
+            .iter()
+            .map(|tuile| tuile.id),
+    );
+    connues.inserer_tout(&etat.plateau.ids_tuiles());
+
+    let mut cachees: Vec<Tuile> = generer_pioche()
+        .into_iter()
+        .filter(|tuile| !connues.contient(tuile.id))
+        .collect();
+    cachees.shuffle(rng);
+
+    // Distribution : les adversaires d'abord (leurs tailles de main sont
+    // connues), le reste constitue la pioche devinée
+    for joueur in etat.joueurs.iter_mut() {
+        if joueur.id == id_vue {
+            continue;
+        }
+        let taille = joueur.main.len();
+        joueur.main = cachees.drain(..taille).collect();
+    }
+    etat.pioche = std::mem::take(&mut cachees);
+
+    etat
+}
+
+/// Descend l'arbre depuis `noeud` (l'état `etat` correspond à ce nœud),
+/// développe un coup, déroule la partie, et propage les récompenses en
+/// remontant. Retourne les récompenses de la simulation, indexées par
+/// identifiant joueur.
+fn descente(
+    noeud: &mut Noeud,
+    etat: &mut Partie,
+    rng: &mut StdRng,
+    params: &IsMcts,
+) -> Result<Vec<f64>, String> {
+    noeud.visites += 1;
+
+    // Partie finie : récompenses selon le score officiel
+    if etat.gagnant().is_some() {
+        return Ok(recompenses_finales(etat));
+    }
+
+    // Un tour vient de se terminer : ouvrir celui du joueur suivant
+    ouvrir_si_necessaire(etat);
+    let coups = coups_possibles(etat)?;
+
+    // Élargissement progressif (ADR 0006) : le nœud visité N fois n'admet
+    // que k = α·N^β enfants — peu au début (les premiers du tri par points),
+    // davantage si les visites s'accumulent.
+    let plafond = plafond_enfants(noeud.visites, params);
+    let non_developpes: Vec<&Coup> = coups.iter().filter(|coup| !noeud.possede(coup)).collect();
+
+    // Sélection : tout est déjà développé, ou le plafond d'enfants est
+    // atteint — on descend par UCB1 parmi les enfants dont le coup est
+    // encore légal ici
+    if non_developpes.is_empty() || noeud.enfants.len() >= plafond {
+        let disponibles: Vec<usize> = (0..noeud.enfants.len())
+            .filter(|index| coups.contains(&noeud.enfants[*index].coup))
+            .collect();
+
+        // Défensif : ne devrait jamais arriver (Piocher est toujours légal)
+        if disponibles.is_empty() {
+            return deroulement(etat, rng, params);
+        }
+
+        let ln_parent = (noeud.visites as f64).ln();
+        let valeur_de = |index: &usize| -> f64 {
+            let enfant = &noeud.enfants[*index];
+            if enfant.noeud.visites == 0 {
+                return f64::INFINITY;
+            }
+            enfant.noeud.somme / enfant.noeud.visites as f64
+                + params.exploration * (ln_parent / enfant.noeud.visites as f64).sqrt()
+        };
+        let meilleur = *disponibles
+            .iter()
+            .max_by(|a, b| valeur_de(a).partial_cmp(&valeur_de(b)).expect("pas de NaN"))
+            .expect("disponibles n'est pas vide");
+
+        let joueur = etat.index_joueur_courant;
+        let coup = noeud.enfants[meilleur].coup.clone();
+        jouer_coup(etat, coup)?;
+        let recompenses = descente(&mut noeud.enfants[meilleur].noeud, etat, rng, params)?;
+        noeud.enfants[meilleur].noeud.somme += recompenses[joueur];
+        return Ok(recompenses);
+    }
+
+    // Expansion : développer le premier coup légal pas encore dans l'arbre.
+    // La liste est triée par points décroissants : ce coup est donc le
+    // meilleur candidat restant, et le choix est déterministe.
+    let coup = (*non_developpes[0]).clone();
+
+    let joueur = etat.index_joueur_courant;
+    jouer_coup(etat, coup.clone())?;
+    noeud.enfants.push(Enfant {
+        coup,
+        noeud: Box::new(Noeud::default()),
+    });
+
+    // Simulation : dérouler la partie depuis le nouvel état
+    let recompenses = deroulement(etat, rng, params)?;
+
+    let enfant = noeud
+        .enfants
+        .last_mut()
+        .expect("l'enfant vient d'être ajouté");
+    enfant.noeud.visites += 1;
+    enfant.noeud.somme += recompenses[joueur];
+    Ok(recompenses)
+}
+
+/// Déroule la partie jusqu'à la fin ou la profondeur maximale, avec une
+/// politique ε-greedy : le coup heuristique avec probabilité 1−ε, un coup
+/// au hasard sinon.
+fn deroulement(etat: &mut Partie, rng: &mut StdRng, params: &IsMcts) -> Result<Vec<f64>, String> {
+    for _ in 0..params.profondeur_rollout {
+        if etat.gagnant().is_some() {
+            break;
+        }
+        ouvrir_si_necessaire(etat);
+        let mut coups = coups_possibles(etat)?;
+
+        let coup = if rng.random::<f64>() < params.epsilon_rollout {
+            // swap_remove : la liste est jetable, on consomme le coup au lieu
+            // de le cloner
+            coups.swap_remove(rng.random_range(0..coups.len()))
+        } else {
+            coup_heuristique(&coups)
+        };
+        jouer_coup(etat, coup)?;
+    }
+
+    Ok(recompenses_finales(etat))
+}
+
+/// Nombre maximal d'enfants d'un nœud visité N fois : α × N^β (élargissement
+/// progressif). Au moins 1, pour que la première visite développe le meilleur
+/// coup.
+fn plafond_enfants(visites: u32, params: &IsMcts) -> usize {
+    (params.alpha_elargissement * (visites as f64).powf(params.beta_elargissement))
+        .floor()
+        .max(1.0) as usize
+}
+
+/// Le coup qu'un bot heuristique jouerait parmi les coups légaux : la
+/// meilleure pose (ils sont triés par points décroissants), sinon piocher,
+/// sinon — si piocher est interdit — terminer.
+fn coup_heuristique(coups: &[Coup]) -> Coup {
+    coups
+        .iter()
+        .find(|coup| matches!(coup, Coup::Poser(_)))
+        .or_else(|| coups.iter().find(|coup| matches!(coup, Coup::Piocher)))
+        .unwrap_or(&coups[0])
+        .clone()
+}
+
+/// Récompenses de fin de partie, selon le score officiel du Rummikub : le
+/// gagnant marque 1 (la victoire) plus la valeur des mains adverses ; chaque
+/// perdant perd la valeur de sa propre main. Le joker resté en main vaut 30
+/// points. Le tout normalisé (/100) pour rester comparable à la prime de
+/// victoire. Sans gagnant (profondeur max atteinte) : 0 pour tous.
+fn recompenses_finales(etat: &Partie) -> Vec<f64> {
+    let mut recompenses = vec![0.0; etat.joueurs.len()];
+    let Some(id_gagnant) = etat.gagnant() else {
+        return recompenses;
+    };
+
+    recompenses[id_gagnant] = 1.0;
+    for joueur in &etat.joueurs {
+        if joueur.id == id_gagnant {
+            continue;
+        }
+        let valeur_main: u32 = joueur.main.iter().map(|t| t.valeur_points() as u32).sum();
+        let normalisee = valeur_main as f64 / 100.0;
+        recompenses[id_gagnant] += normalisee;
+        recompenses[joueur.id] -= normalisee;
+    }
+
+    recompenses
+}
+
+#[cfg(test)]
+mod tests;
+</file>
+
+<file path="crates/rummikub-ia/src/lib.rs">
+//! Joueurs artificiels pour le Rummikub : bots, recherche, apprentissage.
+//! S'appuie uniquement sur l'API publique de `rummikub_core` : les IA passent
+//! par les mêmes coups que les humains, elles ne contournent jamais les
+//! règles (voir coups_possibles / jouer_coup dans le core).
+
+// Naming français délibéré : le lint non_snake_case reste désactivé ici aussi.
+#![allow(non_snake_case)]
+
+pub mod bot_heuristique;
+pub mod graphique;
+pub mod ismcts;
+pub mod tournoi;
+</file>
+
+<file path="crates/rummikub-core/src/coups.rs">
+//! Les coups du jeu : ce que le joueur courant peut tenter, et comment le
+//! jouer. C'est le socle des IA (bots, MCTS, RL) : elles énumèrent les coups
+//! possibles ici, décident, puis appliquent leur choix avec jouer_coup.
+//!
+//! Deux propriétés sur lesquelles les IA s'appuient :
+//! - l'énumération est déterministe (parcours via BTreeMap) : la même main
+//!   produit toujours la même liste, dans le même ordre ;
+//! - les doublons exacts (deux exemplaires de la même tuile) sont
+//!   interchangeables : une seule variante est générée par (couleur, valeur).
+
+use crate::combinaison::Combinaison;
+use crate::partie::{Partie, Tour};
+use crate::tuile::{BitsetTuiles, Couleur, Tuile, TuileType};
+use std::collections::{BTreeMap, HashSet};
+
+/// Un coup que le joueur courant peut tenter, tour ouvert.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Coup {
+    /// Poser une ou plusieurs combinaisons construites depuis sa main
+    Poser(Vec<Combinaison>),
+    /// Remanier le plateau : soumettre un nouvel état complet où rien ne
+    /// disparaît et où chaque nouvelle tuile vient de la main
+    Manipuler(Vec<Combinaison>),
+    /// Terminer son tour (légal après avoir joué, ou à pioche vide pour passer)
+    Terminer,
+    /// Piocher une tuile (termine le tour ; passe si la pioche est vide)
+    Piocher,
+}
+
+/// Énumère toutes les combinaisons valides constructibles depuis `main`
+/// (groupes et suites, jokers compris).
+pub fn combinaisons_possibles(main: &[Tuile]) -> Vec<Combinaison> {
+    // Un seul passage de classement, partagé entre groupes et suites
+    let (standard, jokers) = classer(main);
+    let mut possibles = groupes_depuis(&standard, &jokers);
+    possibles.extend(suites_depuis(&standard, &jokers));
+    possibles
+}
+
+/// Trie les tuiles standard de la main par valeur puis couleur, en retenant
+/// un exemplaire canonique par couple (couleur, valeur), et les jokers à part.
+fn classer(main: &[Tuile]) -> (BTreeMap<u8, BTreeMap<Couleur, Tuile>>, Vec<Tuile>) {
+    let mut standard: BTreeMap<u8, BTreeMap<Couleur, Tuile>> = BTreeMap::new();
+    let mut jokers: Vec<Tuile> = Vec::new();
+
+    for tuile in main {
+        match tuile.Type {
+            TuileType::Joker => jokers.push(*tuile),
+            TuileType::Standard { couleur, valeur } => {
+                standard
+                    .entry(valeur)
+                    .or_default()
+                    .entry(couleur)
+                    .or_insert(*tuile); // premier exemplaire vu = canonique
+            }
+        }
+    }
+
+    (standard, jokers)
+}
+
+/// Tous les groupes (3 ou 4 tuiles de même valeur et de couleurs distinctes)
+/// constructibles depuis la main classée, jokers compris.
+fn groupes_depuis(
+    standard: &BTreeMap<u8, BTreeMap<Couleur, Tuile>>,
+    jokers: &[Tuile],
+) -> Vec<Combinaison> {
+    let nb_jokers = jokers.len();
+    let mut groupes = Vec::new();
+
+    for exemplaires in standard.values() {
+        // Un exemplaire canonique par couleur disponible, ordre déterministe
+        let disponibles: Vec<Tuile> = exemplaires.values().copied().collect();
+        let nb_couleurs = disponibles.len();
+
+        // Chaque sous-ensemble non vide de couleurs disponibles définit la
+        // partie standard d'un groupe ; le reste (jusqu'à 3 ou 4 tuiles au
+        // total) est comblé par des jokers.
+        for masque in 1..(1u32 << nb_couleurs) {
+            let choisies: Vec<Tuile> = (0..nb_couleurs)
+                .filter(|index| masque & (1 << index) != 0)
+                .map(|index| disponibles[index])
+                .collect();
+
+            for taille in 3..=4usize {
+                if taille < choisies.len() {
+                    continue;
+                }
+                let jokers_utilises = taille - choisies.len();
+                if jokers_utilises <= nb_jokers {
+                    let mut tuiles = choisies.clone();
+                    tuiles.extend(jokers.iter().take(jokers_utilises).copied());
+                    groupes.push(Combinaison::nouvelle(tuiles));
+                }
+            }
+        }
+    }
+
+    groupes
+}
+
+/// Toutes les suites (3 à 13 tuiles de même couleur et de valeurs
+/// consécutives) constructibles depuis la main classée, les jokers comblant
+/// les valeurs manquantes.
+fn suites_depuis(
+    standard: &BTreeMap<u8, BTreeMap<Couleur, Tuile>>,
+    jokers: &[Tuile],
+) -> Vec<Combinaison> {
+    let nb_jokers = jokers.len();
+
+    // Transposition : par couleur, les valeurs disponibles (canoniques)
+    let mut par_couleur: BTreeMap<Couleur, BTreeMap<u8, Tuile>> = BTreeMap::new();
+    for (valeur, exemplaires) in standard {
+        for (couleur, tuile) in exemplaires {
+            par_couleur
+                .entry(*couleur)
+                .or_default()
+                .insert(*valeur, *tuile);
+        }
+    }
+
+    let mut suites = Vec::new();
+
+    for valeurs in par_couleur.values() {
+        // Déjà trié : les valeurs disponibles de cette couleur
+        let disponibles: Vec<u8> = valeurs.keys().copied().collect();
+
+        // Toutes les fenêtres consécutives [debut ..= fin] dans 1..=13 :
+        // une fenêtre est jouable si les valeurs absentes peuvent être
+        // couvertes par des jokers.
+        for longueur in 3..=13usize {
+            for debut in 1u8..=(14 - longueur as u8) {
+                let fin = debut + longueur as u8 - 1;
+                let presentes: Vec<Tuile> = disponibles
+                    .iter()
+                    .filter(|valeur| **valeur >= debut && **valeur <= fin)
+                    .map(|valeur| valeurs[valeur])
+                    .collect();
+                let manquantes = longueur - presentes.len();
+
+                if manquantes <= nb_jokers {
+                    let mut tuiles = presentes;
+                    tuiles.extend(jokers.iter().take(manquantes).copied());
+                    suites.push(Combinaison::nouvelle(tuiles));
+                }
+            }
+        }
+    }
+
+    suites
+}
+
+/// Énumère les coups que le joueur courant peut tenter ; le tour doit être
+/// ouvert (ouvrir_tour). Ordre du résultat : les poses par points
+/// décroissants, puis les manipulations, puis Terminer (si disponible) et
+/// Piocher en dernier.
+///
+/// Simplifications assumées de cette version :
+/// - avant la pose initiale, les poses combinées couvrent les paires de
+///   combinaisons disjointes atteignant 30 points ; trois petites
+///   combinaisons (ex. 10 + 10 + 10) ne sont pas énumérées ;
+/// - les manipulations couvrent l'ajout d'une tuile de la main à une
+///   combinaison du plateau, et la libération du joker d'un groupe (la vraie
+///   tuile prend sa place, le joker rejoint une autre combinaison) ; libérer
+///   le joker d'une suite viendra ensuite.
+pub fn coups_possibles(partie: &Partie) -> Result<Vec<Coup>, String> {
+    if !matches!(partie.tour, Tour::Ouvert { .. }) {
+        return Err("Aucun tour en cours : appelez ouvrir_tour pour ouvrir un tour.".to_string());
+    }
+
+    let joueur = partie.joueur_courant();
+    let candidates = combinaisons_possibles(&joueur.main);
+
+    let mut coups: Vec<Coup> = if joueur.a_fait_pose_initiale {
+        // Chaque combinaison candidate est une pose possible à elle seule ;
+        // poser plusieurs combinaisons se fait en enchaînant plusieurs poses
+        // dans le même tour.
+        candidates
+            .into_iter()
+            .map(|combinaison| Coup::Poser(vec![combinaison]))
+            .collect()
+    } else {
+        poses_initiales(candidates)
+    };
+
+    // Les manipulations du plateau ne sont autorisées qu'après la pose initiale
+    if joueur.a_fait_pose_initiale {
+        coups.extend(
+            manipulations_possibles(partie)
+                .into_iter()
+                .map(Coup::Manipuler),
+        );
+    }
+
+    coups.sort_by_key(|coup| match coup {
+        Coup::Poser(combinaisons) => {
+            std::cmp::Reverse(combinaisons.iter().map(|c| c.points()).sum::<u32>())
+        }
+        // les manipulations ne rapportent pas de points : après toutes les poses
+        Coup::Manipuler(_) => std::cmp::Reverse(0),
+        Coup::Terminer => std::cmp::Reverse(0),
+        Coup::Piocher => std::cmp::Reverse(0),
+    });
+    // Terminer son tour est légal après avoir joué quelque chose, ou à
+    // pioche vide (la passe est alors la seule action possible)
+    if partie.a_deja_joue_ce_tour() || partie.pioche.is_empty() {
+        coups.push(Coup::Terminer);
+    }
+    // Piocher met fin au tour, mais uniquement si le joueur n'a encore rien
+    // joué pendant ce tour (règle : piocher, ou jouer, pas les deux)
+    if !partie.a_deja_joue_ce_tour() {
+        coups.push(Coup::Piocher);
+    }
+
+    Ok(coups)
+}
+
+/// Les poses légales avant la pose initiale : les combinaisons valant au
+/// moins 30 points à elles seules (consommées, pas clonées), et les paires
+/// de combinaisons disjointes dont la somme atteint 30 (aucune des deux ne
+/// valant 30 seule — sinon la pose simple existe déjà, et une pose en deux
+/// temps suffit).
+fn poses_initiales(candidates: Vec<Combinaison>) -> Vec<Coup> {
+    let (grandes, petites): (Vec<Combinaison>, Vec<Combinaison>) = candidates
+        .into_iter()
+        .partition(|combinaison| combinaison.points() >= 30);
+
+    // Les poses simples consomment les grandes combinaisons (pas de clone)
+    let mut coups: Vec<Coup> = grandes
+        .into_iter()
+        .map(|combinaison| Coup::Poser(vec![combinaison]))
+        .collect();
+
+    // Les petites sont conservées pour le repérage des paires disjointes :
+    // chacune peut appartenir à plusieurs paires, le clone est inévitable ici
+    let petites: Vec<(Combinaison, u32, BitsetTuiles)> = petites
+        .into_iter()
+        .map(|combinaison| {
+            let points = combinaison.points();
+            let ids = BitsetTuiles::depuis_ids(combinaison.Tuiles.iter().map(|t| t.id));
+            (combinaison, points, ids)
+        })
+        .collect();
+
+    for i in 0..petites.len() {
+        for j in (i + 1)..petites.len() {
+            let (_, points_a, ids_a) = &petites[i];
+            let (_, points_b, ids_b) = &petites[j];
+            if points_a + points_b >= 30 && ids_a.disjoint(ids_b) {
+                coups.push(Coup::Poser(vec![
+                    petites[i].0.clone(),
+                    petites[j].0.clone(),
+                ]));
+            }
+        }
+    }
+
+    coups
+}
+
+/// Énumère les manipulations du plateau réalisables en une seule étape avec
+/// la main du joueur courant. Chaque résultat est un état complet du plateau,
+/// prêt pour soumettre_plateau ; les chaînes de manipulations se font en
+/// enchaînant plusieurs coups dans le même tour.
+fn manipulations_possibles(partie: &Partie) -> Vec<Vec<Combinaison>> {
+    let main = &partie.joueur_courant().main;
+    let mut etats: Vec<Vec<Combinaison>> = Vec::new();
+
+    for (index_meld, meld) in partie.plateau.combinaisons.iter().enumerate() {
+        // 1. Ajouter une tuile de la main à cette combinaison du plateau
+        for tuile in main {
+            let mut etendue = meld.clone();
+            etendue.Tuiles.push(*tuile);
+            if etendue.est_valide() {
+                etats.push(etat_avec(partie, &[(index_meld, etendue)]));
+            }
+        }
+
+        // 2. Libérer le joker d'un groupe : la vraie tuile (depuis la main)
+        //    prend sa place, et le joker rejoint une autre combinaison.
+        if meld.est_groupe_valide()
+            && let Some(position_joker) = meld.Tuiles.iter().position(|t| t.est_joker())
+            && let Some(valeur) = valeur_du_groupe(meld)
+        {
+            let couleurs_groupe: HashSet<Couleur> = meld
+                .Tuiles
+                .iter()
+                .filter_map(|t| match t.Type {
+                    TuileType::Standard { couleur, .. } => Some(couleur),
+                    _ => None,
+                })
+                .collect();
+            let joker_libre = meld.Tuiles[position_joker];
+
+            for tuile in main {
+                let TuileType::Standard { couleur, valeur: v } = tuile.Type else {
+                    continue;
+                };
+                if v != valeur || couleurs_groupe.contains(&couleur) {
+                    continue;
+                }
+
+                let mut groupe_reconstitue = meld.clone();
+                groupe_reconstitue.Tuiles[position_joker] = *tuile;
+                if !groupe_reconstitue.est_valide() {
+                    continue;
+                }
+
+                for (autre_index, autre) in partie.plateau.combinaisons.iter().enumerate() {
+                    if autre_index == index_meld {
+                        continue;
+                    }
+                    let mut etendue = autre.clone();
+                    etendue.Tuiles.push(joker_libre);
+                    if etendue.est_valide() {
+                        etats.push(etat_avec(
+                            partie,
+                            &[
+                                (index_meld, groupe_reconstitue.clone()),
+                                (autre_index, etendue),
+                            ],
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    etats
+}
+
+/// L'état du plateau où les combinaisons listées dans `changements` sont
+/// remplacées (les autres restent inchangées)
+fn etat_avec(partie: &Partie, changements: &[(usize, Combinaison)]) -> Vec<Combinaison> {
+    partie
+        .plateau
+        .combinaisons
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !changements.iter().any(|(i, _)| i == index))
+        .map(|(_, meld)| meld.clone())
+        .chain(changements.iter().map(|(_, meld)| meld.clone()))
+        .collect()
+}
+
+/// La valeur définie par une combinaison de type groupe, s'il y en a une
+fn valeur_du_groupe(meld: &Combinaison) -> Option<u8> {
+    meld.Tuiles.iter().find_map(|t| match t.Type {
+        TuileType::Standard { valeur, .. } => Some(valeur),
+        _ => None,
+    })
+}
+
+/// Joue le coup donné pour le joueur courant (tour ouvert requis) : une pose
+/// retourne les points gagnés, une manipulation ou une pioche retourne 0.
+pub fn jouer_coup(partie: &mut Partie, coup: Coup) -> Result<u32, String> {
+    match coup {
+        Coup::Poser(combinaisons) => partie.poser_combinaisons(combinaisons),
+        Coup::Manipuler(combinaisons) => {
+            partie.soumettre_plateau(combinaisons)?;
+            Ok(0)
+        }
+        Coup::Terminer => {
+            partie.terminer_tour()?;
+            Ok(0)
+        }
+        Coup::Piocher => partie.piocher().map(|_| 0),
+    }
+}
+
+#[cfg(test)]
+mod tests;
+</file>
+
+<file path="Cargo.toml">
+[workspace]
+resolver = "2"
+members = [
+    "crates/rummikub-core",
+    "crates/rummikub-ia",
+    "crates/rummikub-apprentissage",
+]
+
+# Les symboles de debug en release servent au profilage (cargo flamegraph)
+# sans ralentir l'exécution optimisée.
+[profile.release]
+debug = true
+</file>
+
+<file path="AGENTS.md">
+# AGENTS.md
+
+## Project
+
+## Project
+
+Cargo workspace. `crates/rummikub-core` holds the game logic: package `rummikub-core`, lib target `rummikub_core` (`src/lib.rs`, no I/O), plus a thin demo binary (bin target `rummikub`). `crates/rummikub-ia` holds the AI players (bots, search) and only uses the core's public API — the AIs play through the same legal moves as humans. `crates/rummikub-apprentissage` holds the learning stack (state encoder, datasets, burn networks) and only uses the core's public API too. Modules are declared in each crate's `src/lib.rs`; unit tests live in dedicated `src/<module>/tests.rs` files, each declared with `#[cfg(test)] mod tests;`, plus integration tests in each crate's `tests/`. Edition 2024 — requires a recent toolchain (1.85+).
+
+## Gotchas
+
+- **Modules are silently ignored unless declared.** Every module must be declared in its crate's `src/lib.rs` or it will never compile.
+- **French naming is a project-wide rule.** Modules, types, fields, methods, and locals use French: `Tuile`, `Couleur::Rouge`, `piocher`, `ouvrir_tour`, etc., and comments are in French. `Tuile.Type` is capitalized because `type` is a reserved keyword. Test function names stay English (Rust convention, used with `cargo test <name>`). Do not rename to English. `#![allow(non_snake_case)]` at the top of `src/lib.rs` silences the resulting warnings — do not remove it.
+- Domain invariants exercised by tests: jokers in runs resolve to values in 1..=13 (no duplicate values, gaps must not exceed joker count); the initial meld needs ≥ 30 points from melds built only from the player's unique tile IDs. The legal-move enumeration (`coups_possibles`) is deterministic (BTreeMap ordering, same hand -> same list in the same order) and treats exact duplicates as interchangeable (one canonical copy per (couleur, valeur)) — the AIs rely on that for reproducible simulations.
+
+## Commands
+
+- `cargo build` / `cargo test` (at the workspace root: covers every crate)
+- Demo binary: `cargo run -p rummikub-core`
+- Single test: `cargo test -p rummikub-core <name>` (e.g. `cargo test -p rummikub-core test_valid_runs_with_jokers`)
+- `cargo clippy` and `cargo fmt` components are installed — run both before finalizing changes.
+- Bench: `cargo run -p rummikub-ia [graines] [simulations] [epsilon]` — ISMCTS vs the heuristic bot over fixed seeds; results are appended to `banc/resultats.csv`.
+- Epsilon sweep + curve: `cargo run -p rummikub-ia graphique [graines] [simulations]` — writes `banc/balayage-epsilon.csv` and `banc/graphique-epsilon.png`. Run benchmarks and sweeps with `--release` (5-7x faster than debug).
+- Profiling: `[profile.release] debug = true` is set at the workspace root for `cargo flamegraph`; `perf.data` and `flamegraph.svg` are gitignored.
+- Terminal chart fallback if ever needed: the `textplots` crate draws an instant ASCII curve (plotters stays the main choice for PNG/SVG).
+- Architecture decisions live in `docs/adr/` — read them before touching the
+  move enumeration (determinism, scope), and record significant decisions there.
 </file>
 
 </files>

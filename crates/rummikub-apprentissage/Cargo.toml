@@ -6,3 +6,9 @@ edition = "2024"
 [dependencies]
 rummikub-core = { path = "../rummikub-core" }
 rummikub-ia = { path = "../rummikub-ia" }
+# burn épinglé exactement (pré-1.0, API mouvante). Flex = backend CPU pur Rust,
+# choisi à l'exécution via Device::flex() ; GPU plus tard sans changer le modèle.
+burn = { version = "=0.22.0", features = ["flex", "autodiff"] }
+plotters = "0.3.7"
+rand = "0.10.3"
+
