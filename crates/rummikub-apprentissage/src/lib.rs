@@ -11,3 +11,4 @@ pub mod encodeur;
 pub mod entrainement;
 pub mod joueur;
 pub mod modele;
+pub mod selfplay;

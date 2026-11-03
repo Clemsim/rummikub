@@ -46,10 +46,117 @@ fn main() {
         return;
     }
 
+    if arguments.first().map(|argument| argument.as_str()) == Some("renforce") {
+        arguments.remove(0);
+        if let Err(err) = mode_renforcement(&arguments) {
+            eprintln!("Erreur pendant le renforcement : {err}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     eprintln!("Usage : cargo run -p rummikub-apprentissage -- donnees [parties] [simulations]");
     eprintln!("        cargo run -p rummikub-apprentissage -- entraine [epoques] [lr]");
     eprintln!("        cargo run -p rummikub-apprentissage -- joue [parties] [heuristique|ismcts]");
+    eprintln!(
+        "        cargo run -p rummikub-apprentissage -- renforce [cycles] [parties] [tau] [lr] [graines_eval]"
+    );
     std::process::exit(1);
+}
+
+/// Entraînement par renforcement en auto-partie (REINFORCE) : part des poids
+/// d'imitation, joue le réseau contre lui-même, garde le meilleur réseau face
+/// à ISMCTS. Les cycles sont journalisés dans banc/renforce.csv.
+fn mode_renforcement(arguments: &[String]) -> Result<(), String> {
+    use rummikub_apprentissage::selfplay::{self, ConfigRenforcement};
+
+    let cycles: usize = arguments
+        .first()
+        .and_then(|argument| argument.parse().ok())
+        .unwrap_or(20);
+    let parties: u32 = arguments
+        .get(1)
+        .and_then(|argument| argument.parse().ok())
+        .unwrap_or(50);
+    let tau: f64 = arguments
+        .get(2)
+        .and_then(|argument| argument.parse().ok())
+        .unwrap_or(5.0);
+    let lr: f64 = arguments
+        .get(3)
+        .and_then(|argument| argument.parse().ok())
+        .unwrap_or(1e-5);
+    let graines_eval: u32 = arguments
+        .get(4)
+        .and_then(|argument| argument.parse().ok())
+        .unwrap_or(20);
+
+    let poids = "crates/rummikub-apprentissage/donnees/politique.burnpack";
+    if !std::path::Path::new(poids).exists() {
+        return Err(format!(
+            "poids introuvables ({poids}) : entraínez d'abord avec la sous-commande entraine"
+        ));
+    }
+    let reseau_initial = joueur::charger_politique(poids)?;
+    let config = ConfigRenforcement {
+        cycles,
+        parties_par_cycle: parties,
+        tau,
+        lr,
+        taille_lot: 512,
+        graine: 42,
+        evaluations_tous: 5,
+        simulations_ismcts: 300,
+        graines_eval,
+        decroissance_lr: 0.995,
+    };
+    println!(
+        "Renforcement : {cycles} cycles de {parties} auto-parties (tau {tau}, lr {lr}), éval ISMCTS-300 tous les {} cycles",
+        config.evaluations_tous
+    );
+
+    let debut = Instant::now();
+    let resultat = selfplay::entrainer_par_renforcement(&reseau_initial, &config)?;
+    println!(
+        "Meilleur réseau : cycle {} ({:.0}% contre ISMCTS-300, 20 graines).",
+        resultat.meilleur_cycle,
+        resultat.meilleur_taux * 100.0,
+    );
+
+    let repertoire_banc = "banc";
+    std::fs::create_dir_all(repertoire_banc).map_err(|err| err.to_string())?;
+    let nouveau_fichier = !std::path::Path::new("banc/renforce.csv").exists();
+    let mut fichier = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("banc/renforce.csv")
+        .map_err(|err| err.to_string())?;
+    use std::io::Write;
+    if nouveau_fichier {
+        writeln!(
+            fichier,
+            "cycles,parties,tau,meilleur_cycle,meilleur_taux,duree_s"
+        )
+        .map_err(|err| err.to_string())?;
+    }
+    writeln!(
+        fichier,
+        "{cycles},{parties},{tau},{},{},{:.1}",
+        resultat.meilleur_cycle,
+        resultat.meilleur_taux,
+        debut.elapsed().as_secs_f64()
+    )
+    .map_err(|err| err.to_string())?;
+
+    let poids_rl = "crates/rummikub-apprentissage/donnees/politique-rl.burnpack";
+    resultat
+        .meilleur
+        .clone()
+        .into_record()
+        .save(poids_rl)
+        .map_err(|err| err.to_string())?;
+    println!("Meilleurs poids écrits dans {poids_rl}, journal dans banc/renforce.csv.");
+    Ok(())
 }
 
 /// Tournoi de mesure du réseau entraîné : joueur-réseau contre adversaire sur

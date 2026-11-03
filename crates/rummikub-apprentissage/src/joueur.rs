@@ -39,6 +39,8 @@ use crate::modele::Politique;
 use burn::module::Module;
 use burn::prelude::*;
 use burn::store::ModuleRecord;
+use rand::RngExt;
+use rand::rngs::StdRng;
 use rummikub_core::coups::{Coup, coups_possibles, jouer_coup};
 use rummikub_core::partie::{Partie, Tour};
 use rummikub_core::tuile::BitsetTuiles;
@@ -132,6 +134,60 @@ pub fn choisir_coup(reseau: &Politique, partie: &Partie) -> Result<Option<Coup>,
             .find(|coup| matches!(coup, Coup::Terminer))
             .cloned()),
     }
+}
+
+/// Choisit un coup en échantillonnant la distribution softmax(score / tau)
+/// sur les coups légaux — le mode exploratoire de l'entraînement par
+/// renforcement (`selfplay`). Plus `tau` est grand, plus l'exploration est
+/// large ; tau → 0 redonne le choix glouton. Reproductible via la graine.
+pub fn choisir_coup_echantillonne(
+    reseau: &Politique,
+    partie: &Partie,
+    rng: &mut StdRng,
+    tau: f64,
+) -> Result<Option<Coup>, String> {
+    if partie.gagnant().is_some() {
+        return Ok(None);
+    }
+    if !matches!(partie.tour, Tour::Ouvert { .. }) {
+        return Err("Aucun tour en cours : appelez ouvrir_tour pour ouvrir un tour.".to_string());
+    }
+
+    let coups = coups_possibles(partie)?;
+    let entree = crate::encodeur::encoder(partie, partie.index_joueur_courant)?;
+    let probabilites = probabilites(reseau, &entree)?;
+    let ids_plateau = partie.plateau.ids_tuiles();
+
+    let scores: Vec<f64> = coups
+        .iter()
+        .filter_map(|coup| score_du_coup(coup, &ids_plateau, &probabilites))
+        .collect();
+
+    // Défensif : aucun coup scorable (liste réduite à Terminer) → le pilote clôt
+    if scores.is_empty() {
+        return Ok(coups
+            .iter()
+            .find(|coup| matches!(coup, Coup::Terminer))
+            .cloned());
+    }
+
+    // softmax(score / tau) : la soustraction du max évite l'exp overflow
+    let max_score = scores.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let poids: Vec<f64> = scores
+        .iter()
+        .map(|&score| ((score - max_score) / tau).exp())
+        .collect();
+    let total: f64 = poids.iter().sum();
+
+    let tirage = rng.random::<f64>() * total;
+    let mut cumul = 0.0;
+    for (index, &poids) in poids.iter().enumerate() {
+        cumul += poids;
+        if tirage <= cumul {
+            return Ok(Some(coups[index].clone()));
+        }
+    }
+    Ok(Some(coups[coups.len() - 1].clone()))
 }
 
 /// Joue le tour complet du joueur courant avec le réseau : relance le choix
