@@ -97,6 +97,11 @@ impl IsMcts {
                 "Aucun tour en cours : appelez ouvrir_tour pour ouvrir un tour.".to_string(),
             );
         }
+        // Partie déjà gagnée (main vide en cours de tour) : plus rien à décider,
+        // la descente court-circuiterait et la racine resterait sans enfants.
+        if partie.gagnant().is_some() {
+            return Ok(None);
+        }
 
         // Parallélisation à la racine : chaque thread construit son propre
         // arbre avec sa graine dérivée, puis les statistiques sont fusionnées
@@ -150,7 +155,7 @@ impl IsMcts {
                 .choisir_coup(partie)?
                 .expect("Piocher est toujours un coup disponible");
             jouer_coup(partie, coup)?;
-            if !matches!(partie.tour, Tour::Ouvert { .. }) {
+            if partie.gagnant().is_some() || !matches!(partie.tour, Tour::Ouvert { .. }) {
                 return Ok(());
             }
         }

@@ -25,8 +25,9 @@ pub const NB_TYPES: usize = 53;
 /// Taille du vecteur encodé
 pub const TAILLE_VECTEUR: usize = 2 * NB_TYPES + 10;
 
-/// L'index canonique d'un type de tuile dans le vecteur
-fn index_type(tuile: &Tuile) -> usize {
+/// L'index canonique d'un type de tuile dans le vecteur (publique : le
+/// décodeur du bot-réseau en aura besoin)
+pub fn index_type(tuile: &Tuile) -> usize {
     match tuile.Type {
         TuileType::Standard { couleur, valeur } => couleur as usize * 13 + valeur as usize - 1,
         TuileType::Joker => NB_TYPES - 1,

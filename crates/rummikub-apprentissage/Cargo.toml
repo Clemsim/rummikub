@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 rummikub-core = { path = "../rummikub-core" }
+rummikub-ia = { path = "../rummikub-ia" }
