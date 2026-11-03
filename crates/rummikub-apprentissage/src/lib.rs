@@ -9,4 +9,5 @@
 pub mod donnees;
 pub mod encodeur;
 pub mod entrainement;
+pub mod joueur;
 pub mod modele;

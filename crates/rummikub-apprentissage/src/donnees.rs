@@ -37,7 +37,10 @@ pub struct Exemple {
 
 /// La cible d'apprentissage d'un coup : les types de tuiles jouées depuis la
 /// main, et le drapeau piocher. `Terminer` retourne None (pas de classe).
-fn cible_du_coup(coup: &Coup, ids_plateau: &BitsetTuiles) -> Option<([bool; NB_TYPES], bool)> {
+/// Publique : le décodeur du joueur-réseau (`joueur`) réutilise exactement la
+/// même définition d'« une tuile jouée depuis la main » que le générateur —
+/// une seule source de vérité, conformément à l'ADR 0007.
+pub fn cible_du_coup(coup: &Coup, ids_plateau: &BitsetTuiles) -> Option<([bool; NB_TYPES], bool)> {
     let mut types_jouees = [false; NB_TYPES];
 
     match coup {
