@@ -3,10 +3,16 @@
 //! Usages :
 //! - cargo run -p rummikub-apprentissage donnees [parties] [simulations]
 //! - cargo run -p rummikub-apprentissage entraine [epoques] [lr]
+//! - cargo run -p rummikub-apprentissage joue [parties] [adversaire]
+//!
+//! `joue` mesure la force du réseau entraîné : il affronte un adversaire
+//! ("heuristique", défaut, ou "ismcts" — 300 simulations) sur des graines
+//! fixes, dans le même cadre que le tournoi de `rummikub_ia`.
 
 use burn::module::Module;
 use rummikub_apprentissage::donnees;
 use rummikub_apprentissage::entrainement;
+use rummikub_apprentissage::joueur::{self, Adversaire};
 use rummikub_ia::ismcts::IsMcts;
 use std::time::Instant;
 
@@ -31,9 +37,65 @@ fn main() {
         return;
     }
 
+    if arguments.first().map(|argument| argument.as_str()) == Some("joue") {
+        arguments.remove(0);
+        if let Err(err) = mode_joue(&arguments) {
+            eprintln!("Erreur pendant le tournoi du réseau : {err}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     eprintln!("Usage : cargo run -p rummikub-apprentissage -- donnees [parties] [simulations]");
     eprintln!("        cargo run -p rummikub-apprentissage -- entraine [epoques] [lr]");
+    eprintln!("        cargo run -p rummikub-apprentissage -- joue [parties] [heuristique|ismcts]");
     std::process::exit(1);
+}
+
+/// Tournoi de mesure du réseau entraîné : joueur-réseau contre adversaire sur
+/// des graines fixes, résultat ajouté au CSV du banc.
+fn mode_joue(arguments: &[String]) -> Result<(), String> {
+    let nb_parties: u32 = arguments
+        .first()
+        .and_then(|argument| argument.parse().ok())
+        .unwrap_or(20);
+    let adversaire = match arguments.get(1).map(|argument| argument.as_str()) {
+        None | Some("heuristique") => Adversaire::Heuristique,
+        Some("ismcts") => Adversaire::Isme(IsMcts::default()),
+        Some(autre) => {
+            return Err(format!(
+                "adversaire inconnu : {autre} (choix : heuristique, ismcts)"
+            ));
+        }
+    };
+
+    let poids = "crates/rummikub-apprentissage/donnees/politique.burnpack";
+    if !std::path::Path::new(poids).exists() {
+        return Err(format!(
+            "poids introuvables ({poids}) : entraínez d'abord avec la sous-commande entraine"
+        ));
+    }
+    let reseau = joueur::charger_politique(poids)?;
+    println!(
+        "Tournoi : réseau contre {} sur {nb_parties} graines...",
+        adversaire.libelle()
+    );
+
+    let debut = Instant::now();
+    let resultat = joueur::tournoi(nb_parties, &reseau, &adversaire)?;
+    println!(
+        "Réseau {:.1}% ({} V), adversaire {:.1}% ({} V), {} non terminées, en {:.1}s.",
+        resultat.taux_reseau() * 100.0,
+        resultat.victoires_reseau,
+        (1.0 - resultat.taux_reseau()) * 100.0,
+        resultat.victoires_adversaire,
+        resultat.non_terminees,
+        debut.elapsed().as_secs_f64(),
+    );
+
+    joueur::enregistrer_resultat("banc/joue.csv", &adversaire, nb_parties, &resultat)?;
+    println!("Résultat ajouté à banc/joue.csv.");
+    Ok(())
 }
 
 /// Entraînement du réseau de politique sur le dataset CSV : courbes de loss,
