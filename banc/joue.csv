@@ -1,6 +1,6 @@
-date,adversaire,simulations,graines,victoires_reseau,victoires_adversaire,non_terminees,duree_s
-1793705337,heuristique,0,20,17,3,0,0.04
-1793705357,ismcts,300,20,11,9,0,17.85
-1793705361,heuristique,0,100,80,20,0,0.18
-1793705451,ismcts,300,100,35,65,0,89.16
-1793705453,heuristique,0,100,80,20,0,0.18
+date,adversaire,simulations,graines,professeur,victoires_reseau,victoires_adversaire,non_terminees,duree_s
+1793705337,heuristique,0,20,20,17,3,0,0.04
+1793705357,ismcts,300,20,20,11,9,0,17.85
+1793705361,heuristique,0,100,20,80,20,0,0.18
+1793705451,ismcts,300,100,20,35,65,0,89.16
+1793706135,heuristique,0,200,20,161,39,0,0.36

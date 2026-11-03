@@ -257,11 +257,14 @@ pub fn tournoi(
 }
 
 /// Ajoute une ligne de résultats du joueur-réseau au CSV du banc (créé avec
-/// son en-tête au besoin), dans l'esprit de `rummikub_ia::tournoi`.
+/// son en-tête au besoin), dans l'esprit de `rummikub_ia::tournoi`. Les
+/// simulations du professeur (celui du dataset d'entraînement) sont
+/// enregistrées : le graphique du banc distingue les générations de réseaux.
 pub fn enregistrer_resultat(
     chemin: &str,
     adversaire: &Adversaire,
     nb_graines: u32,
+    professeur: u32,
     resultat: &ResultatJoue,
 ) -> Result<(), String> {
     if let Some(dossier) = std::path::Path::new(chemin).parent()
@@ -280,7 +283,7 @@ pub fn enregistrer_resultat(
     if nouveau_fichier {
         writeln!(
             fichier,
-            "date,adversaire,simulations,graines,victoires_reseau,victoires_adversaire,non_terminees,duree_s"
+            "date,adversaire,simulations,graines,professeur,victoires_reseau,victoires_adversaire,non_terminees,duree_s"
         )
         .map_err(|erreur| erreur.to_string())?;
     }
@@ -292,16 +295,148 @@ pub fn enregistrer_resultat(
 
     writeln!(
         fichier,
-        "{horodatage},{},{},{},{},{},{},{:.2}",
+        "{horodatage},{},{},{},{},{},{},{},{:.2}",
         adversaire.libelle(),
         adversaire.simulations(),
         nb_graines,
+        professeur,
         resultat.victoires_reseau,
         resultat.victoires_adversaire,
         resultat.non_terminees,
         resultat.duree.as_secs_f64()
     )
     .map_err(|erreur| erreur.to_string())
+}
+
+/// Une ligne du CSV du banc des tournois du réseau
+#[derive(Debug, Clone, PartialEq)]
+struct LigneBanc {
+    adversaire: String,
+    simulations_adversaire: usize,
+    professeur: u32,
+    nb_graines: u32,
+    victoires_reseau: u32,
+    victoires_adversaire: u32,
+}
+
+impl LigneBanc {
+    /// Le taux de victoire du réseau sur les parties terminées
+    fn taux_reseau(&self) -> f64 {
+        let terminees = (self.victoires_reseau + self.victoires_adversaire) as f64;
+        if terminees == 0.0 {
+            return 0.0;
+        }
+        self.victoires_reseau as f64 / terminees
+    }
+
+    /// L'étiquette de la barre du graphique
+    fn etiquette(&self) -> String {
+        format!(
+            "{} ×{} (prof. {})",
+            self.adversaire, self.nb_graines, self.professeur
+        )
+    }
+}
+
+/// Relit le CSV du banc des tournois. Tolérant aux lignes de l'ancien
+/// schéma (8 colonnes, sans la colonne professeur) : elles datent des
+/// réseaux entraînés sur le professeur à 20 simulations.
+fn lire_banc(chemin_csv: &str) -> Result<Vec<LigneBanc>, String> {
+    let contenu = std::fs::read_to_string(chemin_csv).map_err(|erreur| erreur.to_string())?;
+    let mut lignes = Vec::new();
+    for ligne in contenu.lines().skip(1) {
+        let champs: Vec<&str> = ligne.split(',').collect();
+        if champs.len() < 8 {
+            return Err(format!("ligne du banc mal formée : {ligne}"));
+        }
+        // Schéma 9 colonnes : professeur en 4e ; schéma 8 : prof. = 20.
+        // Dans les deux cas : adversaire 1, simulations 2, graines 3.
+        let professeur = if champs.len() >= 9 {
+            champs[4]
+                .parse()
+                .map_err(|erreur: std::num::ParseIntError| erreur.to_string())?
+        } else {
+            20
+        };
+        let (index_vr, index_va) = if champs.len() >= 9 { (5, 6) } else { (4, 5) };
+        lignes.push(LigneBanc {
+            adversaire: champs[1].to_string(),
+            simulations_adversaire: champs[2]
+                .parse()
+                .map_err(|erreur: std::num::ParseIntError| erreur.to_string())?,
+            professeur,
+            nb_graines: champs[3]
+                .parse()
+                .map_err(|erreur: std::num::ParseIntError| erreur.to_string())?,
+            victoires_reseau: champs[index_vr]
+                .parse()
+                .map_err(|erreur: std::num::ParseIntError| erreur.to_string())?,
+            victoires_adversaire: champs[index_va]
+                .parse()
+                .map_err(|erreur: std::num::ParseIntError| erreur.to_string())?,
+        });
+    }
+    Ok(lignes)
+}
+
+/// Trace le taux de victoire du réseau pour chaque ligne du CSV du banc
+/// (`banc/joue.csv`) : une barre par tournoi enregistré, étiquetée
+/// adversaire, nombre de graines et professeur. La lecture se fait à chaque
+/// mesure — le graphique se met à jour tout seul.
+pub fn tracer_joue(chemin_csv: &str, chemin_png: &str) -> Result<(), String> {
+    use plotters::prelude::*;
+
+    let lignes = lire_banc(chemin_csv)?;
+    if lignes.is_empty() {
+        return Err(format!("{chemin_csv} ne contient aucun tournoi"));
+    }
+
+    let n = lignes.len();
+    let racine = BitMapBackend::new(chemin_png, (900, 500)).into_drawing_area();
+    racine.fill(&WHITE).map_err(|erreur| erreur.to_string())?;
+    let mut diagramme = ChartBuilder::on(&racine)
+        .caption(
+            "Taux de victoire du joueur-réseau (parties terminées)",
+            ("sans-serif", 22),
+        )
+        .margin(15)
+        .x_label_area_size(45)
+        .y_label_area_size(60)
+        .build_cartesian_2d(0.0f64..n as f64, 0.0f64..1.1)
+        .map_err(|erreur| erreur.to_string())?;
+    diagramme
+        .configure_mesh()
+        .x_desc("tournois enregistrés (ordre du CSV)")
+        .y_desc("taux de victoire")
+        .disable_x_mesh()
+        .disable_y_mesh()
+        .draw()
+        .map_err(|erreur| erreur.to_string())?;
+
+    for (index, ligne) in lignes.iter().enumerate() {
+        let couleur = if ligne.adversaire == "ismcts" {
+            &BLUE
+        } else {
+            &RED
+        };
+        let centre = index as f64 + 0.5;
+        let barre = diagramme
+            .draw_series(std::iter::once(Rectangle::new(
+                [(centre - 0.4, 0.0), (centre + 0.4, ligne.taux_reseau())],
+                couleur.mix(0.6).filled(),
+            )))
+            .map_err(|erreur| erreur.to_string())?;
+        barre
+            .label(ligne.etiquette())
+            .legend(move |(x, y)| Rectangle::new([(x, y - 5), (x + 15, y + 5)], couleur.mix(0.6)));
+    }
+    diagramme
+        .configure_series_labels()
+        .background_style(WHITE.mix(0.8))
+        .border_style(BLACK)
+        .draw()
+        .map_err(|erreur| erreur.to_string())?;
+    racine.present().map_err(|erreur| erreur.to_string())
 }
 
 #[cfg(test)]

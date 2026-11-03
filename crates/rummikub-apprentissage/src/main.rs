@@ -68,6 +68,12 @@ fn mode_joue(arguments: &[String]) -> Result<(), String> {
             ));
         }
     };
+    // Les simulations du professeur qui a produit le dataset d'entraînement :
+    // étiquette de la génération de réseau dans le banc
+    let professeur: u32 = arguments
+        .get(2)
+        .and_then(|argument| argument.parse().ok())
+        .unwrap_or(20);
 
     let poids = "crates/rummikub-apprentissage/donnees/politique.burnpack";
     if !std::path::Path::new(poids).exists() {
@@ -93,8 +99,15 @@ fn mode_joue(arguments: &[String]) -> Result<(), String> {
         debut.elapsed().as_secs_f64(),
     );
 
-    joueur::enregistrer_resultat("banc/joue.csv", &adversaire, nb_parties, &resultat)?;
-    println!("Résultat ajouté à banc/joue.csv.");
+    joueur::enregistrer_resultat(
+        "banc/joue.csv",
+        &adversaire,
+        nb_parties,
+        professeur,
+        &resultat,
+    )?;
+    joueur::tracer_joue("banc/joue.csv", "banc/joue.png")?;
+    println!("Résultat ajouté à banc/joue.csv, graphique dans banc/joue.png.");
     Ok(())
 }
 

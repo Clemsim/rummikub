@@ -148,6 +148,44 @@ fn test_le_tournoi_contre_lheuristique_est_legal_et_reproductible() {
 }
 
 #[test]
+fn test_le_traceur_lit_les_deux_schemas_du_banc() {
+    let png = std::env::temp_dir().join("rummikub-test-joue.png");
+    let chemin_png = png.to_str().unwrap();
+
+    // Ancien schéma (8 colonnes, sans professeur) : prof. = 20 par défaut
+    let csv_ancien = std::env::temp_dir().join("rummikub-test-joue-ancien.csv");
+    std::fs::write(
+        &csv_ancien,
+        "date,adversaire,simulations,graines,victoires_reseau,victoires_adversaire,non_terminees,duree_s\n1,heuristique,0,20,17,3,0,0.1\n",
+    )
+    .unwrap();
+    tracer_joue(csv_ancien.to_str().unwrap(), chemin_png).unwrap();
+    let lignes_anciennes = lire_banc(csv_ancien.to_str().unwrap()).unwrap();
+    assert_eq!(lignes_anciennes.len(), 1);
+    assert_eq!(lignes_anciennes[0].professeur, 20);
+    assert!((lignes_anciennes[0].taux_reseau() - 17.0 / 20.0).abs() < 1e-9);
+
+    // Nouveau schéma (9 colonnes)
+    let csv_nouveau = std::env::temp_dir().join("rummikub-test-joue-nouveau.csv");
+    std::fs::write(
+        &csv_nouveau,
+        "date,adversaire,simulations,graines,professeur,victoires_reseau,victoires_adversaire,non_terminees,duree_s\n2,ismcts,300,100,100,35,65,0,1.0\n",
+    )
+    .unwrap();
+    tracer_joue(csv_nouveau.to_str().unwrap(), chemin_png).unwrap();
+    let lignes_nouvelles = lire_banc(csv_nouveau.to_str().unwrap()).unwrap();
+    assert_eq!(lignes_nouvelles.len(), 1);
+    assert_eq!(lignes_nouvelles[0].professeur, 100);
+    assert!((lignes_nouvelles[0].taux_reseau() - 35.0 / 100.0).abs() < 1e-9);
+
+    assert!(std::path::Path::new(chemin_png).exists());
+
+    std::fs::remove_file(&csv_ancien).ok();
+    std::fs::remove_file(&csv_nouveau).ok();
+    std::fs::remove_file(&png).ok();
+}
+
+#[test]
 fn test_ladversaire_heuristique_joue_son_tour() {
     let mut partie = rummikub_core::partie::Partie::nouvelle_avec_graine(
         vec!["A".to_string(), "B".to_string()],
